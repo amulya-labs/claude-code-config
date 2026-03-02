@@ -127,6 +127,25 @@ jobs:
             echo "strategy=detailed" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Install Python dependencies
+        run: pip install google-generativeai --quiet
+
+      - name: Determine review model
+        id: model
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          LABELS=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json labels --jq '[.labels[].name] | join(",")' 2>/dev/null || echo "")
+          if echo "$LABELS" | grep -qE 'ai:pro-review|security'; then
+            echo "model=gemini-1.5-pro" >> "$GITHUB_OUTPUT"
+            echo "use_cache=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "model=gemini-2.0-flash" >> "$GITHUB_OUTPUT"
+            echo "use_cache=0" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Run Gemini Code Review
         id: gemini-review
         timeout-minutes: 30
@@ -137,6 +156,8 @@ jobs:
           REPO: ${{ github.repository }}
           REVIEW_STRATEGY: ${{ steps.pr-size.outputs.strategy }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SELECTED_MODEL: ${{ steps.model.outputs.model }}
+          USE_CACHE: ${{ steps.model.outputs.use_cache }}
         run: |
           # Helper: call Gemini API with exponential-backoff retry on 429/5xx
           gemini_api_call() {
@@ -229,66 +250,22 @@ jobs:
             exit 1
           fi
 
-          # --- Phase 2: Inline review via Gemini Pro (focused diff — code files only) ---
-          INLINE_JSON="[]"
+          # --- Phase 2: Inline review via Gemini (focused diff — code files only) ---
           if [ "${REVIEW_STRATEGY:-detailed}" = "summary" ]; then
             echo "PR too large (files: $FILES, lines: $LINES); skipping inline review." >&2
+            echo "[]" > /tmp/inline-comments.json
           else
-            INLINE_PROMPT="You are a Senior Staff Software Engineer performing a rigorous code review.
-          Objective: Identify bugs, security vulnerabilities, and performance bottlenecks in the provided diff.
-
-          Review Criteria:
-          - Logic and Correctness: Are there edge cases missed? Off-by-one errors?
-          - Security: Look for hardcoded secrets, injection risks, or unsafe dependencies.
-          - Maintainability: Is the code self-documenting? Are there better patterns?
-          - Actionable: Every critique MUST include a code suggestion if a fix is possible.
-
-          Constraint: Do not comment on stylistic preferences (tabs vs spaces, etc.) unless it violates a clear pattern in the existing code. Focus only on bugs, security, and significant correctness issues.
-
-          Git Diff to Review:
-          ${DIFF_FOCUSED}
-
-          Output Format: Return ONLY a valid JSON array. No markdown, no explanation, just the JSON.
-          Each object must follow this schema:
-          {
-            \"file\": \"string (relative path to the file)\",
-            \"line\": number (the absolute line number in the new version of the file where the issue appears; use the line numbers shown after '+' in the diff hunk headers),
-            \"severity\": \"string (Critical | High | Medium | Low)\",
-            \"comment\": \"string (your technical explanation of the issue)\",
-            \"suggestion\": \"string (the corrected code, or empty string if no suggestion)\"
-          }
-
-          If you find no significant issues, return an empty JSON array: []
-          Cap your response at 10 items. Prioritize Critical and High severity findings.
-          Return ONLY the JSON array, nothing else."
-
-            PRO_RESPONSE=$(gemini_api_call \
-              "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${GEMINI_API_KEY}" \
-              "$(jq -n --arg prompt "$INLINE_PROMPT" '{
-                contents: [{parts: [{text: $prompt}]}],
-                generationConfig: {temperature: 0.1, maxOutputTokens: 4096}
-              }')")
-
-            RAW_TEXT=$(echo "$PRO_RESPONSE" | jq -r '.candidates[0].content.parts[0].text // empty' 2>/dev/null)
-
-            if [ -n "$RAW_TEXT" ]; then
-              # Strip markdown code fences if the model wraps JSON in ```json ... ```
-              CLEAN_JSON=$(printf '%s' "$RAW_TEXT" \
-                | sed 's/^```json[[:space:]]*//' \
-                | sed 's/^```[[:space:]]*//' \
-                | sed 's/[[:space:]]*```$//')
-              if echo "$CLEAN_JSON" | jq -e 'if type == "array" then . else error end' > /dev/null 2>&1; then
-                INLINE_JSON="$CLEAN_JSON"
-              else
-                echo "WARNING: Gemini Pro returned invalid JSON; skipping inline comments." >&2
-              fi
-            else
-              PRO_ERROR=$(echo "$PRO_RESPONSE" | jq -r '.error | "[\(.code)] \(.message)" // "unknown error"' 2>/dev/null)
-              echo "WARNING: Gemini Pro API call failed: $PRO_ERROR" >&2
+            DIFF_FOCUSED="/tmp/pr-focused.diff" \
+            SELECTED_MODEL="${SELECTED_MODEL}" \
+            USE_CACHE="${USE_CACHE}" \
+            OUTPUT_FILE="/tmp/inline-comments.json" \
+            python3 scripts/gemini_review.py || true
+            # Fall back to empty array if the script failed to write output
+            if [ ! -f /tmp/inline-comments.json ]; then
+              echo "[]" > /tmp/inline-comments.json
             fi
           fi
 
-          echo "$INLINE_JSON" > /tmp/inline-comments.json
           COUNT=$(jq 'length' /tmp/inline-comments.json)
 
           # --- Phase 3: Build review body and upsert summary comment (edit existing or create new) ---
@@ -385,6 +362,15 @@ jobs:
               --repo "$REPO" 2>/dev/null || true
             gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "severity:high" 2>/dev/null || true
           fi
+
+      - name: Upload inline comments artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: inline-comments-${{ steps.pr.outputs.number }}
+          path: /tmp/inline-comments.json
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Post failure notice
         if: always() && steps.pr.outputs.number != ''
@@ -487,6 +473,25 @@ jobs:
             "/repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions" \
             -f content='eyes'
 
+      - name: Install Python dependencies
+        run: pip install google-generativeai --quiet
+
+      - name: Determine review model
+        id: model
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          LABELS=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json labels --jq '[.labels[].name] | join(",")' 2>/dev/null || echo "")
+          if echo "$LABELS" | grep -qE 'ai:pro-review|security'; then
+            echo "model=gemini-1.5-pro" >> "$GITHUB_OUTPUT"
+          else
+            echo "model=gemini-2.0-flash" >> "$GITHUB_OUTPUT"
+          fi
+          # OSS job: never cache (no checkout; repo files not available)
+          echo "use_cache=0" >> "$GITHUB_OUTPUT"
+
       - name: Run Gemini Code Review (OSS)
         id: gemini-review
         timeout-minutes: 30
@@ -496,6 +501,8 @@ jobs:
           PR_NUMBER: ${{ steps.pr.outputs.number }}
           REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SELECTED_MODEL: ${{ steps.model.outputs.model }}
+          USE_CACHE: "0"
         run: |
           # Helper: call Gemini API with exponential-backoff retry on 429/5xx
           gemini_api_call() {
@@ -595,66 +602,34 @@ jobs:
             exit 1
           fi
 
-          # --- Phase 2: Inline review via Gemini Pro (focused diff — code files only) ---
-          INLINE_JSON="[]"
+          # --- Phase 2: Inline review via Gemini (focused diff — code files only) ---
           if [ "$REVIEW_STRATEGY" = "summary" ]; then
             echo "PR too large (files: $FILES, lines: $LINES); skipping inline review." >&2
+            echo "[]" > /tmp/inline-comments.json
           else
-            INLINE_PROMPT="You are a Senior Staff Software Engineer performing a rigorous code review.
-          Objective: Identify bugs, security vulnerabilities, and performance bottlenecks in the provided diff.
-
-          Review Criteria:
-          - Logic and Correctness: Are there edge cases missed? Off-by-one errors?
-          - Security: Look for hardcoded secrets, injection risks, or unsafe dependencies.
-          - Maintainability: Is the code self-documenting? Are there better patterns?
-          - Actionable: Every critique MUST include a code suggestion if a fix is possible.
-
-          Constraint: Do not comment on stylistic preferences (tabs vs spaces, etc.) unless it violates a clear pattern in the existing code. Focus only on bugs, security, and significant correctness issues.
-
-          Git Diff to Review:
-          ${DIFF_FOCUSED}
-
-          Output Format: Return ONLY a valid JSON array. No markdown, no explanation, just the JSON.
-          Each object must follow this schema:
-          {
-            \"file\": \"string (relative path to the file)\",
-            \"line\": number (the absolute line number in the new version of the file where the issue appears; use the line numbers shown after '+' in the diff hunk headers),
-            \"severity\": \"string (Critical | High | Medium | Low)\",
-            \"comment\": \"string (your technical explanation of the issue)\",
-            \"suggestion\": \"string (the corrected code, or empty string if no suggestion)\"
-          }
-
-          If you find no significant issues, return an empty JSON array: []
-          Cap your response at 10 items. Prioritize Critical and High severity findings.
-          Return ONLY the JSON array, nothing else."
-
-            PRO_RESPONSE=$(gemini_api_call \
-              "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${GEMINI_API_KEY}" \
-              "$(jq -n --arg prompt "$INLINE_PROMPT" '{
-                contents: [{parts: [{text: $prompt}]}],
-                generationConfig: {temperature: 0.1, maxOutputTokens: 4096}
-              }')")
-
-            RAW_TEXT=$(echo "$PRO_RESPONSE" | jq -r '.candidates[0].content.parts[0].text // empty' 2>/dev/null)
-
-            if [ -n "$RAW_TEXT" ]; then
-              # Strip markdown code fences if the model wraps JSON in ```json ... ```
-              CLEAN_JSON=$(printf '%s' "$RAW_TEXT" \
-                | sed 's/^```json[[:space:]]*//' \
-                | sed 's/^```[[:space:]]*//' \
-                | sed 's/[[:space:]]*```$//')
-              if echo "$CLEAN_JSON" | jq -e 'if type == "array" then . else error end' > /dev/null 2>&1; then
-                INLINE_JSON="$CLEAN_JSON"
-              else
-                echo "WARNING: Gemini Pro returned invalid JSON; skipping inline comments." >&2
-              fi
+            # Fetch gemini_review.py from the default branch of this repository
+            # (safe: this is the workflow owner's own code, not PR author's code)
+            curl -fsSL \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H "Accept: application/vnd.github.raw+json" \
+              "https://api.github.com/repos/${REPO}/contents/scripts/gemini_review.py" \
+              -o /tmp/gemini_review.py 2>/dev/null || true
+            if [ ! -s /tmp/gemini_review.py ]; then
+              echo "WARNING: Could not fetch gemini_review.py; skipping inline review." >&2
+              echo "[]" > /tmp/inline-comments.json
             else
-              PRO_ERROR=$(echo "$PRO_RESPONSE" | jq -r '.error | "[\(.code)] \(.message)" // "unknown error"' 2>/dev/null)
-              echo "WARNING: Gemini Pro API call failed: $PRO_ERROR" >&2
+              DIFF_FOCUSED="/tmp/pr-focused.diff" \
+              SELECTED_MODEL="${SELECTED_MODEL}" \
+              USE_CACHE="0" \
+              OUTPUT_FILE="/tmp/inline-comments.json" \
+              python3 /tmp/gemini_review.py || true
+              # Fall back to empty array if the script failed to write output
+              if [ ! -f /tmp/inline-comments.json ]; then
+                echo "[]" > /tmp/inline-comments.json
+              fi
             fi
           fi
 
-          echo "$INLINE_JSON" > /tmp/inline-comments.json
           COUNT=$(jq 'length' /tmp/inline-comments.json)
 
           # --- Phase 3: Build review body and upsert summary comment (edit existing or create new) ---
@@ -751,6 +726,15 @@ jobs:
               --repo "$REPO" 2>/dev/null || true
             gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "severity:high" 2>/dev/null || true
           fi
+
+      - name: Upload inline comments artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: inline-comments-${{ steps.pr.outputs.number }}
+          path: /tmp/inline-comments.json
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Post failure notice
         if: always() && steps.pr.outputs.number != ''
