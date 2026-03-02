@@ -4,36 +4,16 @@
 name: Gemini Code Review
 
 on:
-  workflow_dispatch:
-    inputs:
-      pr_number:
-        description: "PR number to review (recommended; required for public/OSS manual runs)"
-        required: false
-        type: string
-
-  pull_request:
-    types:
-      - opened
-      - ready_for_review
-      - review_requested
-      - reopened
-
   issue_comment:
     types: [created]
 
 concurrency:
   group: ${{
-    (github.event_name == 'pull_request') &&
-      format('{0}-pr-{1}', github.workflow, github.event.pull_request.number)
-      ||
-    (github.event_name == 'issue_comment' &&
-     github.event.issue.pull_request &&
-     startsWith(github.event.comment.body, '/gemini-review') &&
-     github.actor != 'github-actions[bot]') &&
-      format('{0}-issue_comment-pr-{1}', github.workflow, github.event.issue.number)
-      ||
-    (github.event_name == 'workflow_dispatch') &&
-      format('{0}-dispatch-pr-{1}', github.workflow, github.event.inputs.pr_number)
+    (github.event.issue.pull_request &&
+     (startsWith(github.event.comment.body, '/gemini-light-review') ||
+      startsWith(github.event.comment.body, '/gemini-deep-review') ||
+      startsWith(github.event.comment.body, '/gemini-review'))) &&
+      format('{0}-pr-{1}', github.workflow, github.event.issue.number)
       ||
     format('{0}-noop-{1}', github.workflow, github.run_id)
     }}
@@ -45,15 +25,17 @@ jobs:
   # =============================
   gemini-review-internal:
     if: |
-      github.event.repository.visibility != 'public' && (
-        github.event_name == 'workflow_dispatch' ||
-        (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) ||
-        (
-          github.event_name == 'issue_comment' &&
-          github.event.issue.pull_request &&
-          startsWith(github.event.comment.body, '/gemini-review') &&
-          (github.event.comment.author_association == 'MEMBER' || github.event.comment.author_association == 'OWNER' || github.event.comment.author_association == 'COLLABORATOR')
-        )
+      github.event.repository.visibility != 'public' &&
+      github.event.issue.pull_request &&
+      (
+        startsWith(github.event.comment.body, '/gemini-light-review') ||
+        startsWith(github.event.comment.body, '/gemini-deep-review') ||
+        startsWith(github.event.comment.body, '/gemini-review')
+      ) &&
+      (
+        github.event.comment.author_association == 'MEMBER' ||
+        github.event.comment.author_association == 'OWNER' ||
+        github.event.comment.author_association == 'COLLABORATOR'
       )
     runs-on: ubuntu-latest
     permissions:
@@ -64,25 +46,7 @@ jobs:
       actions: read
 
     steps:
-      - name: Resolve PR number
-        id: pr
-        shell: bash
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            echo "number=${{ github.event.pull_request.number }}" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.event_name }}" = "issue_comment" ]; then
-            echo "number=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "number=${{ github.event.inputs.pr_number }}" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: React to triggering comment
-        if: |
-          github.event_name == 'issue_comment' && (
-            github.event.comment.author_association == 'MEMBER' ||
-            github.event.comment.author_association == 'OWNER' ||
-            github.event.comment.author_association == 'COLLABORATOR'
-          )
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -96,19 +60,22 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
-          # For issue_comment / workflow_dispatch, checkout the PR head explicitly.
-          # For pull_request, default ref is fine, but this also works consistently.
-          ref: ${{ steps.pr.outputs.number != '' && format('refs/pull/{0}/head', steps.pr.outputs.number) || github.ref }}
+          ref: refs/pull/${{ github.event.issue.number }}/head
 
       - name: Post review-started notice
-        if: github.event_name == 'issue_comment'
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
         run: |
-          gh pr comment "${{ steps.pr.outputs.number }}" \
+          if [[ "$COMMENT_BODY" == /gemini-light-review* ]]; then
+            LABEL="Light"
+          else
+            LABEL="Deep"
+          fi
+          gh pr comment "${{ github.event.issue.number }}" \
             --repo "${{ github.repository }}" \
-            --body "> Gemini review in progress. [View run]($RUN_URL)"
+            --body "> $LABEL Gemini review in progress. [View run]($RUN_URL)"
 
       - name: Check PR size
         id: pr-size
@@ -133,17 +100,16 @@ jobs:
       - name: Determine review model
         id: model
         env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ steps.pr.outputs.number }}
-          REPO: ${{ github.repository }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
         run: |
-          LABELS=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json labels --jq '[.labels[].name] | join(",")' 2>/dev/null || echo "")
-          if echo "$LABELS" | grep -qE 'ai:pro-review|security'; then
-            echo "model=gemini-1.5-pro" >> "$GITHUB_OUTPUT"
-            echo "use_cache=1" >> "$GITHUB_OUTPUT"
-          else
+          if [[ "$COMMENT_BODY" == /gemini-light-review* ]]; then
             echo "model=gemini-2.0-flash" >> "$GITHUB_OUTPUT"
+            echo "mode=light" >> "$GITHUB_OUTPUT"
             echo "use_cache=0" >> "$GITHUB_OUTPUT"
+          else
+            echo "model=gemini-2.5-pro" >> "$GITHUB_OUTPUT"
+            echo "mode=deep" >> "$GITHUB_OUTPUT"
+            echo "use_cache=1" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Run Gemini Code Review
@@ -152,11 +118,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          PR_NUMBER: ${{ github.event.issue.number }}
           REPO: ${{ github.repository }}
           REVIEW_STRATEGY: ${{ steps.pr-size.outputs.strategy }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           SELECTED_MODEL: ${{ steps.model.outputs.model }}
+          MODE: ${{ steps.model.outputs.mode }}
           USE_CACHE: ${{ steps.model.outputs.use_cache }}
         run: |
           # Helper: call Gemini API with exponential-backoff retry on 429/5xx
@@ -219,8 +186,32 @@ jobs:
           ' < /tmp/pr.diff > /tmp/pr-focused.diff
           DIFF_FOCUSED=$(cat /tmp/pr-focused.diff)
 
-          # --- Phase 1: Narrative summary via Gemini Flash (full diff for broad context) ---
-          SUMMARY_PROMPT="You are an experienced engineering lead reviewing a pull request for your team.
+          # Light review: skip inline comments regardless of PR size
+          if [ "${MODE}" = "light" ]; then
+            REVIEW_STRATEGY="summary"
+          fi
+
+          # --- Phase 1: Summary via Gemini Flash ---
+          if [ "${MODE}" = "light" ]; then
+            SUMMARY_PROMPT="You are performing a QUICK code review of this pull request.
+
+          PR Title: ${PR_TITLE}
+          ${FILES} files changed, ${LINES} lines (additions + deletions)
+
+          Git Diff:
+          ${DIFF}
+
+          Quick scan — focus only on:
+          1. Obvious bugs or logic errors
+          2. Security issues (injection, auth, exposed secrets)
+          3. Breaking changes or missing error handling
+
+          Format: two short paragraphs (no headers, no bullets, no bold labels).
+          First: what the PR does in one sentence, then any critical issues found.
+          Second: overall verdict — looks good / needs changes / flag for deep review.
+          Keep it under 100 words. If purely mechanical (renames, deps, formatting), just confirm it looks fine."
+          else
+            SUMMARY_PROMPT="You are an experienced engineering lead reviewing a pull request for your team.
           Write a concise narrative summary of these changes in exactly three paragraphs — no headers, no bullet points, no bold labels.
 
           PR Title: ${PR_TITLE}
@@ -235,6 +226,7 @@ jobs:
 
           Write as a thoughtful colleague, not as a template-filling bot. Keep it under 200 words total.
           Do not include any markdown headers or code fences in your response."
+          fi
 
           FLASH_RESPONSE=$(gemini_api_call \
             "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}" \
@@ -252,7 +244,7 @@ jobs:
 
           # --- Phase 2: Inline review via Gemini (focused diff — code files only) ---
           if [ "${REVIEW_STRATEGY:-detailed}" = "summary" ]; then
-            echo "PR too large (files: $FILES, lines: $LINES); skipping inline review." >&2
+            echo "PR too large or light-review requested; skipping inline review." >&2
             echo "[]" > /tmp/inline-comments.json
           else
             DIFF_FOCUSED="/tmp/pr-focused.diff" \
@@ -268,11 +260,18 @@ jobs:
 
           COUNT=$(jq 'length' /tmp/inline-comments.json)
 
+          # Determine retrigger command for footer
+          if [ "${MODE}" = "light" ]; then
+            RETRIGGER="/gemini-light-review"
+          else
+            RETRIGGER="/gemini-review"
+          fi
+
           # --- Phase 3: Build review body and upsert summary comment (edit existing or create new) ---
           {
             echo "## Gemini Code Review"
             echo ""
-            echo "_Automated review by [Gemini](https://gemini.google.com/) via [ai-dev-foundry](https://github.com/amulya-labs/ai-dev-foundry). Re-trigger with \`/gemini-review\`._"
+            echo "_Automated review by [Gemini](https://gemini.google.com/) via [ai-dev-foundry](https://github.com/amulya-labs/ai-dev-foundry). Re-trigger with \`$RETRIGGER\`._"
             echo ""
             echo "$SUMMARY_TEXT"
             echo ""
@@ -288,6 +287,9 @@ jobs:
                 /tmp/inline-comments.json
               echo ""
               echo "_Inline comments are posted directly on the diff._"
+            elif [ "${MODE}" = "light" ]; then
+              echo ""
+              echo "_Light review — run \`/gemini-review\` for a deep review with inline comments._"
             elif [ "${REVIEW_STRATEGY:-detailed}" = "summary" ]; then
               echo "---"
               echo ""
@@ -367,7 +369,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: inline-comments-${{ steps.pr.outputs.number }}
+          name: inline-comments-${{ github.event.issue.number }}
           path: /tmp/inline-comments.json
           if-no-files-found: ignore
           retention-days: 7
@@ -379,8 +381,9 @@ jobs:
           REVIEW_OUTCOME: ${{ steps.gemini-review.outcome }}
           JOB_STATUS: ${{ job.status }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          PR_NUM: ${{ steps.pr.outputs.number }}
+          PR_NUM: ${{ github.event.issue.number }}
           REPO: ${{ github.repository }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
         run: |
           # Skip if review succeeded
           if [ "$REVIEW_OUTCOME" = "success" ]; then
@@ -396,11 +399,19 @@ jobs:
             REASON="failed (API error, timeout, or internal error)"
           fi
 
+          if [[ "$COMMENT_BODY" == /gemini-light-review* ]]; then
+            RETRIGGER="/gemini-light-review"
+          elif [[ "$COMMENT_BODY" == /gemini-deep-review* ]]; then
+            RETRIGGER="/gemini-deep-review"
+          else
+            RETRIGGER="/gemini-review"
+          fi
+
           cat > /tmp/failure-notice.md <<EOF
           > **Note:** The automated Gemini code review did not complete — $REASON.
           >
           > Any inline comments posted above are valid findings, but the review may be incomplete.
-          > [View workflow run]($RUN_URL) for details. Re-trigger with \`/gemini-review\`.
+          > [View workflow run]($RUN_URL) for details. Re-trigger with \`$RETRIGGER\`.
           EOF
 
           gh pr comment "$PR_NUM" \
@@ -413,28 +424,17 @@ jobs:
   gemini-review-oss:
     # SECURITY: never checkout PR code in public/OSS mode. Use gh pr diff/view only.
     if: |
-      github.event.repository.visibility == 'public' && (
-        (
-          github.event_name == 'issue_comment' &&
-          github.event.issue.pull_request &&
-          startsWith(github.event.comment.body, '/gemini-review') &&
-          (github.event.comment.author_association == 'MEMBER' || github.event.comment.author_association == 'OWNER' || github.event.comment.author_association == 'COLLABORATOR')
-        )
-        ||
-        (
-          github.event_name == 'pull_request' &&
-          github.event.pull_request.head.repo.full_name == github.repository &&
-          (
-            github.event.pull_request.author_association == 'MEMBER' ||
-            github.event.pull_request.author_association == 'OWNER' ||
-            github.event.pull_request.author_association == 'COLLABORATOR'
-          )
-        )
-        ||
-        (
-          github.event_name == 'workflow_dispatch' &&
-          github.event.inputs.pr_number != ''
-        )
+      github.event.repository.visibility == 'public' &&
+      github.event.issue.pull_request &&
+      (
+        startsWith(github.event.comment.body, '/gemini-light-review') ||
+        startsWith(github.event.comment.body, '/gemini-deep-review') ||
+        startsWith(github.event.comment.body, '/gemini-review')
+      ) &&
+      (
+        github.event.comment.author_association == 'MEMBER' ||
+        github.event.comment.author_association == 'OWNER' ||
+        github.event.comment.author_association == 'COLLABORATOR'
       )
     runs-on: ubuntu-latest
     permissions:
@@ -445,25 +445,7 @@ jobs:
       actions: read
 
     steps:
-      - name: Resolve PR number
-        id: pr
-        shell: bash
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            echo "number=${{ github.event.pull_request.number }}" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.event_name }}" = "issue_comment" ]; then
-            echo "number=${{ github.event.issue.number }}" >> "$GITHUB_OUTPUT"
-          else
-            echo "number=${{ github.event.inputs.pr_number }}" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: React to triggering comment
-        if: |
-          github.event_name == 'issue_comment' && (
-            github.event.comment.author_association == 'MEMBER' ||
-            github.event.comment.author_association == 'OWNER' ||
-            github.event.comment.author_association == 'COLLABORATOR'
-          )
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -479,15 +461,14 @@ jobs:
       - name: Determine review model
         id: model
         env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ steps.pr.outputs.number }}
-          REPO: ${{ github.repository }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
         run: |
-          LABELS=$(gh pr view "$PR_NUMBER" --repo "$REPO" --json labels --jq '[.labels[].name] | join(",")' 2>/dev/null || echo "")
-          if echo "$LABELS" | grep -qE 'ai:pro-review|security'; then
-            echo "model=gemini-1.5-pro" >> "$GITHUB_OUTPUT"
-          else
+          if [[ "$COMMENT_BODY" == /gemini-light-review* ]]; then
             echo "model=gemini-2.0-flash" >> "$GITHUB_OUTPUT"
+            echo "mode=light" >> "$GITHUB_OUTPUT"
+          else
+            echo "model=gemini-2.5-pro" >> "$GITHUB_OUTPUT"
+            echo "mode=deep" >> "$GITHUB_OUTPUT"
           fi
           # OSS job: never cache (no checkout; repo files not available)
           echo "use_cache=0" >> "$GITHUB_OUTPUT"
@@ -498,10 +479,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          PR_NUMBER: ${{ steps.pr.outputs.number }}
+          PR_NUMBER: ${{ github.event.issue.number }}
           REPO: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           SELECTED_MODEL: ${{ steps.model.outputs.model }}
+          MODE: ${{ steps.model.outputs.mode }}
           USE_CACHE: "0"
         run: |
           # Helper: call Gemini API with exponential-backoff retry on 429/5xx
@@ -571,8 +553,32 @@ jobs:
           ' < /tmp/pr.diff > /tmp/pr-focused.diff
           DIFF_FOCUSED=$(cat /tmp/pr-focused.diff)
 
-          # --- Phase 1: Narrative summary via Gemini Flash (full diff for broad context) ---
-          SUMMARY_PROMPT="You are an experienced engineering lead reviewing a pull request for your team.
+          # Light review: skip inline comments regardless of PR size
+          if [ "${MODE}" = "light" ]; then
+            REVIEW_STRATEGY="summary"
+          fi
+
+          # --- Phase 1: Summary via Gemini Flash ---
+          if [ "${MODE}" = "light" ]; then
+            SUMMARY_PROMPT="You are performing a QUICK code review of this pull request.
+
+          PR Title: ${PR_TITLE}
+          ${FILES} files changed, ${LINES} lines (additions + deletions)
+
+          Git Diff:
+          ${DIFF}
+
+          Quick scan — focus only on:
+          1. Obvious bugs or logic errors
+          2. Security issues (injection, auth, exposed secrets)
+          3. Breaking changes or missing error handling
+
+          Format: two short paragraphs (no headers, no bullets, no bold labels).
+          First: what the PR does in one sentence, then any critical issues found.
+          Second: overall verdict — looks good / needs changes / flag for deep review.
+          Keep it under 100 words. If purely mechanical (renames, deps, formatting), just confirm it looks fine."
+          else
+            SUMMARY_PROMPT="You are an experienced engineering lead reviewing a pull request for your team.
           Write a concise narrative summary of these changes in exactly three paragraphs — no headers, no bullet points, no bold labels.
 
           PR Title: ${PR_TITLE}
@@ -587,6 +593,7 @@ jobs:
 
           Write as a thoughtful colleague, not as a template-filling bot. Keep it under 200 words total.
           Do not include any markdown headers or code fences in your response."
+          fi
 
           FLASH_RESPONSE=$(gemini_api_call \
             "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}" \
@@ -604,7 +611,7 @@ jobs:
 
           # --- Phase 2: Inline review via Gemini (focused diff — code files only) ---
           if [ "$REVIEW_STRATEGY" = "summary" ]; then
-            echo "PR too large (files: $FILES, lines: $LINES); skipping inline review." >&2
+            echo "PR too large or light-review requested; skipping inline review." >&2
             echo "[]" > /tmp/inline-comments.json
           else
             # Fetch gemini_review.py from the default branch of this repository
@@ -632,11 +639,18 @@ jobs:
 
           COUNT=$(jq 'length' /tmp/inline-comments.json)
 
+          # Determine retrigger command for footer
+          if [ "${MODE}" = "light" ]; then
+            RETRIGGER="/gemini-light-review"
+          else
+            RETRIGGER="/gemini-review"
+          fi
+
           # --- Phase 3: Build review body and upsert summary comment (edit existing or create new) ---
           {
             echo "## Gemini Code Review"
             echo ""
-            echo "_Automated review by [Gemini](https://gemini.google.com/) via [ai-dev-foundry](https://github.com/amulya-labs/ai-dev-foundry). Re-trigger with \`/gemini-review\`._"
+            echo "_Automated review by [Gemini](https://gemini.google.com/) via [ai-dev-foundry](https://github.com/amulya-labs/ai-dev-foundry). Re-trigger with \`$RETRIGGER\`._"
             echo ""
             echo "$SUMMARY_TEXT"
             echo ""
@@ -652,6 +666,9 @@ jobs:
                 /tmp/inline-comments.json
               echo ""
               echo "_Inline comments are posted directly on the diff._"
+            elif [ "${MODE}" = "light" ]; then
+              echo ""
+              echo "_Light review — run \`/gemini-review\` for a deep review with inline comments._"
             elif [ "$REVIEW_STRATEGY" = "summary" ]; then
               echo "---"
               echo ""
@@ -731,18 +748,19 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: inline-comments-${{ steps.pr.outputs.number }}
+          name: inline-comments-oss-${{ github.event.issue.number }}
           path: /tmp/inline-comments.json
           if-no-files-found: ignore
           retention-days: 7
 
       - name: Post failure notice
-        if: always() && steps.pr.outputs.number != ''
+        if: failure()
         env:
           GH_TOKEN: ${{ github.token }}
           REVIEW_OUTCOME: ${{ steps.gemini-review.outcome }}
           JOB_STATUS: ${{ job.status }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
         run: |
           # Skip if review succeeded
           if [ "$REVIEW_OUTCOME" = "success" ]; then
@@ -758,13 +776,21 @@ jobs:
             REASON="failed (API error, timeout, or internal error)"
           fi
 
+          if [[ "$COMMENT_BODY" == /gemini-light-review* ]]; then
+            RETRIGGER="/gemini-light-review"
+          elif [[ "$COMMENT_BODY" == /gemini-deep-review* ]]; then
+            RETRIGGER="/gemini-deep-review"
+          else
+            RETRIGGER="/gemini-review"
+          fi
+
           cat > /tmp/failure-notice.md <<EOF
           > **Note:** The automated Gemini code review did not complete — $REASON.
           >
           > Any inline comments posted above are valid findings, but the review may be incomplete.
-          > [View workflow run]($RUN_URL) for details. Re-trigger with \`/gemini-review\`.
+          > [View workflow run]($RUN_URL) for details. Re-trigger with \`$RETRIGGER\`.
           EOF
 
-          gh pr comment "${{ steps.pr.outputs.number }}" \
+          gh pr comment "${{ github.event.issue.number }}" \
             --repo "${{ github.repository }}" \
             --body-file /tmp/failure-notice.md
