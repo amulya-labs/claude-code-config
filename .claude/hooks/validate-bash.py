@@ -8,6 +8,7 @@ License: MIT (https://opensource.org/licenses/MIT)
 """
 
 import json
+import os
 import re
 import sys
 from dataclasses import dataclass
@@ -673,6 +674,54 @@ def validate_command(
     return final_decision, final_reason
 
 
+def _add_to_negative_lookahead(pattern: str, exclusion: str) -> str:
+    """Prepend an exclusion alternative to the first negative lookahead in a pattern.
+
+    Transforms: /(?!foo|bar) -> /(?!<exclusion>|foo|bar)
+    If no lookahead exists, returns the pattern unchanged.
+    """
+    if "(?!" not in pattern:
+        return pattern
+    return pattern.replace("(?!", f"(?!{exclusion}|", 1)
+
+
+def _inject_git_root_patterns(config: dict, git_root: str) -> None:
+    """Dynamically inject git root path into validation patterns.
+
+    When Claude runs from a git repository, rm within that repo is
+    auto-approved (lockstep: excluded from ask, added to allow).
+    The .git metadata directory itself is protected from deletion.
+
+    Must be called BEFORE compile_patterns().
+    """
+    # Lookahead exclusion: path after the leading '/' must not start with git_root
+    # E.g. /home/rrl/github/myproject -> home/rrl/github/myproject/
+    escaped_for_lookahead = re.escape(git_root.lstrip("/")) + "/"
+
+    # 1. Narrow ask.file_deletion to exclude paths within the git root.
+    #    This must be paired with the allow entry below (evaluated before allow).
+    ask_file_del = config.get("ask", {}).get("file_deletion", {})
+    if isinstance(ask_file_del, dict) and "patterns" in ask_file_del:
+        ask_file_del["patterns"] = [
+            _add_to_negative_lookahead(p, escaped_for_lookahead)
+            for p in ask_file_del["patterns"]
+        ]
+
+    # 2. Allow rm on any path within the git root (lockstep with exclusion above).
+    escaped_abs = re.escape(git_root)
+    config.setdefault("allow", {})["git_project_files"] = {
+        "description": f"File removal within git repository at {git_root}",
+        "patterns": [f"^rm\\s+(-[a-zA-Z]+\\s+)*{escaped_abs}/"],
+    }
+
+    # 3. Protect the .git directory itself from deletion (added to ask).
+    escaped_git_dir = re.escape(os.path.join(git_root, ".git"))
+    config.setdefault("ask", {})["git_metadata_protection"] = {
+        "description": "Protect .git metadata directory from deletion",
+        "patterns": [f"^rm\\b.*{escaped_git_dir}(/|$)"],
+    }
+
+
 def main():
     if len(sys.argv) != 2:
         print("Usage: validate-bash.py <config.toml>", file=sys.stderr)
@@ -681,12 +730,7 @@ def main():
     config_path = sys.argv[1]
     config = load_config(config_path)
 
-    # Compile patterns once at startup (improves performance)
-    deny_patterns = compile_patterns(config, "deny")
-    ask_patterns = compile_patterns(config, "ask")
-    allow_patterns = compile_patterns(config, "allow")
-
-    # Read JSON input from stdin
+    # Read JSON input first — cwd is needed for dynamic pattern injection
     try:
         input_data = json.load(sys.stdin)
     except json.JSONDecodeError:
@@ -696,6 +740,19 @@ def main():
     command = input_data.get("tool_input", {}).get("command", "")
     if not command:
         sys.exit(0)
+
+    # If running inside a git repository, inject git-root-aware patterns before
+    # compiling so that rm within the repo is auto-approved and .git is protected.
+    cwd = input_data.get("cwd", "")
+    if cwd:
+        cwd = os.path.normpath(cwd)
+        if os.path.exists(os.path.join(cwd, ".git")):
+            _inject_git_root_patterns(config, cwd)
+
+    # Compile patterns (includes any git-root injections from above)
+    deny_patterns = compile_patterns(config, "deny")
+    ask_patterns = compile_patterns(config, "ask")
+    allow_patterns = compile_patterns(config, "allow")
 
     decision, reason = validate_command(
         command, deny_patterns, ask_patterns, allow_patterns

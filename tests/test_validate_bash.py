@@ -461,6 +461,94 @@ class TestEdgeCases:
         assert decision == expected_decision
 
 
+class TestGitRootPatternInjection:
+    """Tests for dynamic git-root pattern injection.
+
+    _inject_git_root_patterns() is called at runtime when Claude runs inside a
+    git repo (cwd has .git).  These tests simulate that injection so the
+    allow/ask behaviour can be exercised without actually touching the filesystem.
+    """
+
+    GIT_ROOT = "/home/user/myproject"
+
+    @pytest.fixture(scope="class")
+    def git_root_patterns(self):
+        """Config with git root /home/user/myproject injected."""
+        with open(CONFIG_PATH, "rb") as f:
+            cfg = tomllib.load(f)
+        validate_bash._inject_git_root_patterns(cfg, self.GIT_ROOT)
+        return {
+            "deny": validate_bash.compile_patterns(cfg, "deny"),
+            "ask": validate_bash.compile_patterns(cfg, "ask"),
+            "allow": validate_bash.compile_patterns(cfg, "allow"),
+        }
+
+    @pytest.mark.parametrize(
+        "command,expected",
+        [
+            # Files within the git root are auto-approved
+            ("rm /home/user/myproject/src/generated.py", "allow"),
+            ("rm -rf /home/user/myproject/build/", "allow"),
+            ("rm -f /home/user/myproject/tests/old_test.py", "allow"),
+            ("rm -r /home/user/myproject/.venv/", "allow"),
+            # .git directory itself is protected
+            ("rm -rf /home/user/myproject/.git", "ask"),
+            ("rm -rf /home/user/myproject/.git/", "ask"),
+            ("rm -rf /home/user/myproject/.git/refs/", "ask"),
+            # Paths outside the git root still ask
+            ("rm /home/user/important.conf", "ask"),
+            ("rm /home/otheruser/myproject/file.py", "ask"),
+            ("rm /usr/local/lib/file.so", "ask"),
+            ("rm -rf /var/log/myapp", "ask"),
+            # Shallow home paths ask even with injection
+            ("rm -rf /home/user", "ask"),
+        ],
+        ids=[
+            "project-src-file-allowed",
+            "project-build-dir-allowed",
+            "project-test-file-allowed",
+            "project-venv-allowed",
+            "git-dir-bare-asks",
+            "git-dir-slash-asks",
+            "git-dir-refs-asks",
+            "outside-repo-shallow-asks",
+            "other-user-repo-asks",
+            "system-path-asks",
+            "var-log-asks",
+            "shallow-home-asks",
+        ],
+    )
+    def test_git_root_injection(self, git_root_patterns, command, expected):
+        decision, reason = validate_bash.validate_command(
+            command,
+            git_root_patterns["deny"],
+            git_root_patterns["ask"],
+            git_root_patterns["allow"],
+        )
+        assert decision == expected, (
+            f"Expected {expected} for '{command}'\n"
+            f"  Got: {decision} ({reason})"
+        )
+
+    def test_add_to_negative_lookahead_basic(self):
+        """_add_to_negative_lookahead inserts the exclusion at the first (?!."""
+        pattern = r"^rm\s+/(?!tmp/|var/tmp/)"
+        result = validate_bash._add_to_negative_lookahead(pattern, r"home/user/")
+        assert result == r"^rm\s+/(?!home/user/|tmp/|var/tmp/)"
+
+    def test_add_to_negative_lookahead_no_lookahead(self):
+        """_add_to_negative_lookahead returns pattern unchanged if no (?!."""
+        pattern = r"^rm\s+/tmp/"
+        result = validate_bash._add_to_negative_lookahead(pattern, r"home/user/")
+        assert result == pattern
+
+    def test_add_to_negative_lookahead_only_first(self):
+        """_add_to_negative_lookahead only modifies the first (?! occurrence."""
+        pattern = r"^rm\s+/(?!tmp/).*(?!foo/)"
+        result = validate_bash._add_to_negative_lookahead(pattern, r"home/user/")
+        assert result == r"^rm\s+/(?!home/user/|tmp/).*(?!foo/)"
+
+
 if __name__ == "__main__":
     # Allow running this file directly to execute the pytest suite.
     raise SystemExit(pytest.main([__file__]))

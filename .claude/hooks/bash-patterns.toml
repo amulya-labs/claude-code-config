@@ -380,21 +380,20 @@ patterns = [
 ]
 
 [ask.file_deletion]
-description = "File removal targeting absolute system paths (outside /tmp and project dirs)"
+description = "File removal targeting absolute system paths (outside /tmp and current git repo)"
 # Ask when rm targets absolute paths that are NOT:
 #   /tmp/ or /var/tmp/  — temp files (covered by allow.temp_cleanup)
-#   /home/user/X/...    — project files 2+ levels under a user's home dir
-#   /root/X/...         — project files directly under root's home dir
-# Shallow home paths like /home/user (no trailing project component) still ask.
+#   current git repo    — injected dynamically at runtime by _inject_git_root_patterns()
+#                         when Claude is opened inside a git project (cwd has .git)
 # Relative-path rm is allowed by allow.file_deletion_relative.
 # Catastrophic rm (/, ~, *, .) is blocked by deny.catastrophic_deletion.
 patterns = [
-    # rm -r/-rf/-ri/-rfi + absolute path (not /tmp/, /var/tmp/, or project dirs)
-    "^rm\\s+(-[a-zA-Z]*r[a-zA-Z]*\\s+)+/(?!tmp/|var/tmp/|home/[^/]+/[^/]+/|root/[^/]+)",
-    # rm -f/-fi + absolute path (not /tmp/, /var/tmp/, or project dirs)
-    "^rm\\s+(-[a-zA-Z]*f[a-zA-Z]*\\s+)+/(?!tmp/|var/tmp/|home/[^/]+/[^/]+/|root/[^/]+)",
-    # bare rm + absolute path (not /tmp/, /var/tmp/, or project dirs)
-    "^rm\\s+/(?!tmp/|var/tmp/|home/[^/]+/[^/]+/|root/[^/]+)",
+    # rm -r/-rf/-ri/-rfi + absolute path (not /tmp/ or /var/tmp/)
+    "^rm\\s+(-[a-zA-Z]*r[a-zA-Z]*\\s+)+/(?!tmp/|var/tmp/)",
+    # rm -f/-fi + absolute path (not /tmp/ or /var/tmp/)
+    "^rm\\s+(-[a-zA-Z]*f[a-zA-Z]*\\s+)+/(?!tmp/|var/tmp/)",
+    # bare rm + absolute path (not /tmp/ or /var/tmp/)
+    "^rm\\s+/(?!tmp/|var/tmp/)",
 ]
 
 [ask.dangerous_pipelines]
@@ -1485,21 +1484,10 @@ patterns = [
     "^rm\\s+(-[a-zA-Z]+\\s+)*\\./",
 ]
 
-[allow.project_file_deletion]
-description = "File removal on absolute paths within user project directories"
-# Covers absolute-path rm when Claude computes or uses the full repo path.
-# Guards:
-#   - ask.file_deletion is narrowed to exclude these paths (evaluated before allow)
-#   - deny.catastrophic_deletion blocks /home/user itself (shallow paths still ask)
-# Depth requirement: /home/<user>/<project>/... (2+ components after /home/) and
-#   /root/<project>/... (1+ component after /root/) — shallow paths like /home/user
-#   or /root alone still hit ask.file_deletion and prompt the user.
-patterns = [
-    # rm on /home/user/project/... paths (requires project/ subdir — trailing slash is key)
-    "^rm\\s+(-[a-zA-Z]+\\s+)*/home/[^/]+/[^/]+/",
-    # rm on /root/project/... paths (root's home has less nesting; 1 level suffices)
-    "^rm\\s+(-[a-zA-Z]+\\s+)*/root/[^/]+",
-]
+# allow.project_file_deletion was removed: project file deletion is now handled
+# dynamically at runtime via _inject_git_root_patterns() in validate-bash.py.
+# When Claude is invoked inside a git repo (cwd/.git exists), rm on any path
+# under that repo root is auto-approved and the .git directory is protected.
 
 [allow.temp_cleanup]
 description = "Temp file cleanup"
