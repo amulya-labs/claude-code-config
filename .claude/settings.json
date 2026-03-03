@@ -33,7 +33,21 @@
       "WebSearch",
       "WebFetch",
       "mcp__plugin_context7_context7__resolve-library-id",
-      "mcp__plugin_context7_context7__query-docs"
+      "mcp__plugin_context7_context7__query-docs",
+      "Bash(cd * && git add*)",
+      "Bash(cd * && git status*)",
+      "Bash(cd * && git diff*)",
+      "Bash(cd * && git log*)",
+      "Bash(cd * && git commit*)",
+      "Bash(cd * && git fetch*)",
+      "Bash(cd * && git pull*)",
+      "Bash(cd * && git checkout*)",
+      "Bash(cd * && git switch*)",
+      "Bash(cd * && git branch*)",
+      "Bash(cd * && git stash*)",
+      "Bash(cd * && git remote*)",
+      "Bash(cd * && git tag*)",
+      "Bash(cd * && git submodule*)"
     ],
     "deny": []
   }

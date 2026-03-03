@@ -829,6 +829,13 @@ description = "Git and GitHub CLI"
 patterns = [
     "^git ",
     "^gh ",
+    # cd <dir> && git <op>: common pattern for running git in a specific directory.
+    # The validator's split logic already handles this (each segment is validated
+    # independently), so this entry matches the full compound before splitting
+    # as an explicit documentation and fallback.
+    # Positive list of safe verbs: excludes force-push, hard-reset, etc. so
+    # ask.git_destructive is not bypassed if this ever matches as a full compound.
+    "^cd .+ && git (add|status|diff|log|show|fetch|pull|checkout|switch|branch|commit|remote|tag|submodule|stash)( |$)",
 ]
 
 [allow.github_lifecycle]

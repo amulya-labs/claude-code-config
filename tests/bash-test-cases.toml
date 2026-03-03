@@ -2358,3 +2358,36 @@ description = "generic 'get' verb is excluded (may expose secrets)"
 [[ask]]
 command = "unknowntool show credentials"
 description = "generic 'show' verb is excluded (may expose secrets)"
+
+# =============================================================================
+# allow.git — cd <dir> && git <op> compound (running git in a specific directory)
+# =============================================================================
+
+[[allow]]
+command = "cd /home/user/project && git add ."
+description = "cd + git add compound"
+
+[[allow]]
+command = "cd /tmp/repo && git status"
+description = "cd + git status compound"
+
+[[allow]]
+command = "cd /tmp/repo && git commit -m 'fix'"
+description = "cd + git commit compound"
+
+[[allow]]
+command = "cd /tmp/repo && git fetch origin"
+description = "cd + git fetch compound"
+
+[[allow]]
+command = "cd /tmp/repo && git log --oneline -5"
+description = "cd + git log compound"
+
+# Dangerous git operations still ask even in cd compound (split logic catches them)
+[[ask]]
+command = "cd /tmp/repo && git push --force"
+description = "cd + git force push still asks"
+
+[[ask]]
+command = "cd /tmp/repo && git reset --hard HEAD~1"
+description = "cd + git reset --hard still asks"
