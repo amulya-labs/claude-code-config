@@ -1814,14 +1814,14 @@ description = "crontab edit (still asks)"
 command = "crontab -r"
 description = "crontab remove (still asks)"
 
-# Regression: absolute non-tmp paths must still trigger ask
+# Regression: shallow home paths and system paths still ask
 [[ask]]
 command = "rm -rf /home/user"
-description = "rm -rf absolute non-tmp path requires confirmation"
+description = "rm -rf shallow home dir (no project component) still asks"
 
 [[ask]]
 command = "rm -f /etc/config"
-description = "rm -f absolute non-tmp path requires confirmation"
+description = "rm -f absolute system path requires confirmation"
 
 [[ask]]
 command = "rm /etc/hosts"
@@ -2411,3 +2411,79 @@ description = "cd + git force push still asks"
 [[ask]]
 command = "cd /tmp/repo && git reset --hard HEAD~1"
 description = "cd + git reset --hard still asks"
+
+# =============================================================================
+# allow.project_file_deletion — rm on absolute paths within user project dirs
+# =============================================================================
+
+# Project files are 2+ levels under /home/ (home/user/project/...) — allowed
+# A file inside a project subdir has the required /home/user/project/ prefix ✓
+[[allow]]
+command = "rm /home/rrl/github/ai-dev-foundry/tests/old_test.py"
+description = "rm absolute path within user project subdir is allowed"
+
+[[allow]]
+command = "rm -rf /home/rrl/github/ai-dev-foundry/build/"
+description = "rm -rf absolute path to project build dir is allowed"
+
+[[allow]]
+command = "rm -f /home/user/project/src/generated.py"
+description = "rm -f absolute project file (3+ levels deep) is allowed"
+
+[[allow]]
+command = "rm /root/project/file.py"
+description = "rm absolute path in /root/project is allowed"
+
+[[allow]]
+command = "rm -rf /root/myproject/build/"
+description = "rm -rf absolute path in /root project dir is allowed"
+
+# Shallow home paths still ask (no project component)
+[[ask]]
+command = "rm -rf /home/user"
+description = "rm -rf /home/user (shallow, no project) still asks"
+
+[[ask]]
+command = "rm /home/user/important.conf"
+description = "rm /home/user/<file> (only 1 level under home) still asks"
+
+# System paths still ask
+[[ask]]
+command = "rm /usr/local/lib/file.so"
+description = "rm absolute system path still asks"
+
+[[ask]]
+command = "rm -rf /var/log/myapp"
+description = "rm /var/log (non-tmp var) still asks"
+
+# =============================================================================
+# allow.temp_cleanup — /var/tmp/ coverage
+# =============================================================================
+
+[[allow]]
+command = "rm -rf /var/tmp/build-cache"
+description = "rm -rf /var/tmp/ dir is allowed"
+
+[[allow]]
+command = "rm -f /var/tmp/tempfile.lock"
+description = "rm -f /var/tmp/ file is allowed"
+
+[[allow]]
+command = "rm /var/tmp/scratch"
+description = "bare rm /var/tmp/ file is allowed"
+
+# =============================================================================
+# allow.file_truncate — /tmp/ and /var/tmp/ absolute paths
+# =============================================================================
+
+[[allow]]
+command = "truncate -s 0 /tmp/app.log"
+description = "truncate /tmp/ file is allowed"
+
+[[allow]]
+command = "truncate -s 0 /var/tmp/cache.db"
+description = "truncate /var/tmp/ file is allowed"
+
+[[allow]]
+command = "truncate /tmp/output.txt"
+description = "truncate /tmp/ file (no size flag) is allowed"
