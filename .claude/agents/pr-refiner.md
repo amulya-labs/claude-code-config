@@ -44,7 +44,7 @@ gh api graphql -f query='query { repository(owner: "<owner>", name: "<repo>") { 
 
 **Review threads** (GraphQL) provide the thread node IDs (`PRRT_...`) needed to resolve conversations in Step 9. Build a mapping of `comment databaseId → thread node ID` from this response for later use.
 
-Process feedback from ALL reviewers: human reviewers, `claude`, `Copilot`, linters, and any other bot or person. Do not filter by reviewer name.
+Process feedback from ALL reviewers: human reviewers, `claude`, `Copilot`, `gemini-code-assist`, linters, and any other bot or person. Do not filter by reviewer name.
 
 ### Step 3: Extract and Categorize
 
@@ -249,7 +249,7 @@ PR refinement is complete when:
 - **Always reply to every inline comment** - reviewers should see resolution directly on their comment, not have to hunt through commits
 - **Resolve addressed threads** - after replying, resolve threads where you agreed and implemented the fix; leave disagreements and clarifications unresolved for reviewer follow-up
 - **Always post a summary comment** - a single itemized table on the PR so reviewers can see the status of all feedback at a glance
-- **Never use "@" mentions for bot users in GitHub comments** - when referencing bot users (e.g., claude, copilot) in summary comments, inline replies, or any GitHub-posted text, write their name without the "@" prefix (e.g., write `claude` not `@claude`, write `copilot` not `@copilot`). The "@" prefix triggers those bots to act on the PR, which is unwanted. Human reviewers may be "@" mentioned normally.
+- **Never use "@" mentions for bot users in GitHub comments** - when referencing bot users (e.g., ***claude***, ***copilot***, ***gemini-code-assist***) in summary comments, inline replies, or any GitHub-posted text, write their name without the "@" prefix (e.g., write `claude` not `@claude`, write `copilot` not `@copilot`, write `gemini-code-assist` not `@gemini-code-assist`). The "@" prefix triggers those bots to act on the PR, which is unwanted. Human reviewers may be "@" mentioned normally.
 
 ## When to Defer
 
