@@ -2202,3 +2202,159 @@ description = "builtin exec: ask guard not bypassed by builtin prefix"
 [[allow]]
 command = "echo $(echo 'test\\'s done')"
 description = "backslash in single-quoted arg inside $(): not an escape, paren closes correctly"
+
+# =============================================================================
+# ask.package_manager_install — remote registry installs prompt for confirmation
+# =============================================================================
+
+[[ask]]
+command = "apt install vim"
+description = "apt install prompts (supply chain risk)"
+
+[[ask]]
+command = "apt-get install nginx"
+description = "apt-get install prompts"
+
+[[ask]]
+command = "apt upgrade"
+description = "apt upgrade prompts (unreviewed package changes)"
+
+[[ask]]
+command = "apt-get upgrade"
+description = "apt-get upgrade prompts"
+
+[[ask]]
+command = "pip install requests"
+description = "pip install from registry prompts"
+
+[[ask]]
+command = "pip install -r requirements.txt"
+description = "pip install from requirements file prompts"
+
+[[ask]]
+command = "npm install express"
+description = "npm install registry package prompts"
+
+[[ask]]
+command = "npm install -g typescript"
+description = "npm install -g global package prompts"
+
+# npm install bare (no package name) installs from package.json: still allowed
+[[allow]]
+command = "npm install"
+description = "npm install bare (from package.json) is allowed"
+
+# npm install with local path is still allowed
+[[allow]]
+command = "npm install ./local-package"
+description = "npm install local path is allowed"
+
+[[ask]]
+command = "yarn add lodash"
+description = "yarn add registry package prompts"
+
+[[ask]]
+command = "brew install jq"
+description = "brew install prompts"
+
+[[ask]]
+command = "pacman -S vim"
+description = "pacman -S install prompts"
+
+[[ask]]
+command = "cargo install ripgrep"
+description = "cargo install from registry prompts"
+
+[[ask]]
+command = "gem install rails"
+description = "gem install from registry prompts"
+
+# =============================================================================
+# ask.kernel_modules — kernel module load/unload prompts
+# =============================================================================
+
+[[ask]]
+command = "insmod mymodule.ko"
+description = "insmod loads kernel module (prompts)"
+
+[[ask]]
+command = "modprobe nf_conntrack"
+description = "modprobe loads kernel module (prompts)"
+
+[[ask]]
+command = "rmmod mymodule"
+description = "rmmod unloads kernel module (prompts)"
+
+# =============================================================================
+# deny.privilege_escalation — absolute path bypass now denied
+# =============================================================================
+
+[[deny]]
+command = "/usr/bin/sudo bash"
+description = "sudo via absolute path is denied (bypass attempt)"
+
+[[deny]]
+command = "/usr/bin/sudo rm -rf /etc"
+description = "sudo with dangerous command via absolute path is denied"
+
+[[deny]]
+command = "/bin/su - root"
+description = "su via absolute path is denied (bypass attempt)"
+
+# =============================================================================
+# allow.generic_read_subcommands — read-only verb patterns for unknown tools
+# =============================================================================
+
+# Tools already in specific allow lists: verify the generic pattern is consistent
+[[allow]]
+command = "powerprofilesctl list"
+description = "powerprofilesctl list (read-only list verb)"
+
+[[allow]]
+command = "kind list clusters"
+description = "kind list (read-only list verb)"
+
+[[allow]]
+command = "fnm list"
+description = "fnm list (bare list verb, end of string)"
+
+# Tools with hyphen/underscore in name
+[[allow]]
+command = "some-tool list"
+description = "generic: hyphenated tool name with list verb"
+
+[[allow]]
+command = "some-tool status"
+description = "generic: hyphenated tool name with status verb"
+
+[[allow]]
+command = "my_tool describe"
+description = "generic: underscored tool name with describe verb"
+
+# Subcommand with trailing arguments
+[[allow]]
+command = "sometool list --all"
+description = "generic: list verb with trailing flags"
+
+[[allow]]
+command = "sometool status myresource"
+description = "generic: status verb with resource argument"
+
+[[allow]]
+command = "sometool version"
+description = "generic: bare version subcommand (end of string)"
+
+[[allow]]
+command = "sometool query --filter=active"
+description = "generic: query verb with flag"
+
+# Excluded verbs: show, get, inspect should NOT be auto-approved generically
+# (they can expose secrets in tools like git, kubectl, helm)
+# git show falls through to allow via ^git  pattern, but for unknown tools:
+[[ask]]
+command = "unknowntool get secret"
+description = "generic 'get' verb is excluded (may expose secrets)"
+
+[[ask]]
+command = "unknowntool show credentials"
+description = "generic 'show' verb is excluded (may expose secrets)"

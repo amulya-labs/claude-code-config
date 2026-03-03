@@ -21,6 +21,9 @@ patterns = [
     "^sudo ",
     "^su ",
     "^doas ",
+    # Absolute path bypass: blocks '/usr/bin/sudo bash' which starts with '/' not 'sudo'
+    "/usr/bin/sudo ",
+    "/bin/su ",
 ]
 
 [deny.catastrophic_deletion]
@@ -450,6 +453,32 @@ patterns = [
     "^newgrp ",
 ]
 
+[ask.package_manager_install]
+description = "Package installation from remote registries (supply chain risk)"
+# npm install bare (no package name) is intentionally excluded: it installs from
+# local package.json and is a routine dev operation. Only registry installs prompt.
+# Local-path installs (npm install ./pkg) and flag-only forms (npm install --save-dev)
+# are also excluded via negative lookaheads.
+patterns = [
+    "^apt(-get)? install",
+    "^apt(-get)? upgrade",
+    "^pip install",
+    "^npm install (?!\\.)(?!--)(.+)",
+    "^yarn add",
+    "^brew install",
+    "^pacman -S ",
+    "^cargo install ",
+    "^gem install",
+]
+
+[ask.kernel_modules]
+description = "Kernel module load/unload operations"
+patterns = [
+    "^insmod ",
+    "^modprobe ",
+    "^rmmod ",
+]
+
 # =============================================================================
 # ALLOW PATTERNS - Safe operations, auto-approve
 # =============================================================================
@@ -756,6 +785,20 @@ patterns = [
     "^who\\b",
     "^last\\b",
     "^powerprofilesctl",
+]
+
+[allow.generic_read_subcommands]
+description = "Any tool using universally read-only subcommand verbs"
+# Covers unknown/new CLI tools that follow '<tool> <verb>' conventions.
+# 'show', 'get', 'inspect', 'export', 'dump' are intentionally excluded:
+# they expose secrets in specific tools (e.g. git show, kubectl get secret -o yaml).
+# These are legitimate dev operations but feel wrong to auto-approve silently.
+patterns = [
+    "^[a-z][a-z0-9_-]+ (list|ls)( |$)",
+    "^[a-z][a-z0-9_-]+ status( |$)",
+    "^[a-z][a-z0-9_-]+ describe( |$)",
+    "^[a-z][a-z0-9_-]+ query( |$)",
+    "^[a-z][a-z0-9_-]+ version( |$)",
 ]
 
 [allow.command_wrappers]
