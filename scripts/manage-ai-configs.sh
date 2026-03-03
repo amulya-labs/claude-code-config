@@ -148,7 +148,7 @@ download_provider_workflows() {
     local secret_var="PROVIDER_${upper}_SECRET"
     local label_var="PROVIDER_${upper}_LABEL"
 
-    if [[ -z "${!workflows_var+x}" ]]; then
+    if [[ ! -v "$workflows_var" ]]; then
         warn "Unknown provider '$provider' — no registry entry; skipping"
         return 0
     fi
@@ -190,18 +190,20 @@ download_provider_config() {
     local config_items_var="PROVIDER_${upper}_CONFIG_ITEMS"
 
     # Provider has no local config dir — nothing to download
-    [[ -z "${!config_dir_var+x}" ]] && return 0
+    [[ ! -v "$config_dir_var" ]] && return 0
 
     local config_dir="${!config_dir_var}"
     local config_items="${!config_items_var:-}"
     local label_var="PROVIDER_${upper}_LABEL"
     local label="${!label_var}"
 
-    info "Installing ${label} local config to ${config_dir}..."
+    info "Syncing ${label} local config in ${config_dir}..."
     mkdir -p "$config_dir"
 
     local item
-    for item in $config_items; do
+    local -a _items
+    read -ra _items <<< "$config_items"
+    for item in "${_items[@]}"; do
         if [[ "$item" == *.* ]]; then
             # Single file (e.g. settings.json)
             info "Fetching ${item}..."
@@ -249,7 +251,7 @@ install_config() {
     for _p in "${PROVIDERS_ENABLED[@]}"; do
         _up=$(printf '%s' "$_p" | tr '[:lower:]' '[:upper:]')
         _cdir_var="PROVIDER_${_up}_CONFIG_DIR"
-        if [[ -n "${!_cdir_var+x}" ]]; then
+        if [[ -v "$_cdir_var" ]]; then
             _cdir="${!_cdir_var}"
             if [ -d "$_cdir" ] && [ "$(ls -A "$_cdir" 2>/dev/null)" ]; then
                 error "Directory $_cdir already exists and is not empty. Use 'update' instead."
@@ -264,7 +266,7 @@ install_config() {
     for _p in "${PROVIDERS_ENABLED[@]}"; do
         _up=$(printf '%s' "$_p" | tr '[:lower:]' '[:upper:]')
         _cdir_var="PROVIDER_${_up}_CONFIG_DIR"
-        if [[ -n "${!_cdir_var+x}" ]]; then
+        if [[ -v "$_cdir_var" ]]; then
             git add "${!_cdir_var}" 2>/dev/null || true
         fi
     done
@@ -296,7 +298,7 @@ update_config() {
     for _p in "${PROVIDERS_ENABLED[@]}"; do
         _up=$(printf '%s' "$_p" | tr '[:lower:]' '[:upper:]')
         _cdir_var="PROVIDER_${_up}_CONFIG_DIR"
-        if [[ -n "${!_cdir_var+x}" ]]; then
+        if [[ -v "$_cdir_var" ]]; then
             _cdir="${!_cdir_var}"
             if [ ! -d "$_cdir" ]; then
                 error "Directory $_cdir not found. Use 'install' first."
@@ -311,7 +313,7 @@ update_config() {
     for _p in "${PROVIDERS_ENABLED[@]}"; do
         _up=$(printf '%s' "$_p" | tr '[:lower:]' '[:upper:]')
         _cdir_var="PROVIDER_${_up}_CONFIG_DIR"
-        if [[ -n "${!_cdir_var+x}" ]]; then
+        if [[ -v "$_cdir_var" ]]; then
             git add "${!_cdir_var}" 2>/dev/null || true
         fi
     done
@@ -379,6 +381,8 @@ usage_gemini() {
     echo ""
     echo "Options:"
     echo "  --with-gha-workflows   Also install extra workflow templates"
+    echo "  --ai <providers>       Comma-separated provider list (accepted; use 'gemini' or 'all' instead)"
+    echo "  --gemini               Equivalent to using the 'gemini' subcommand (accepted)"
 }
 
 usage_all() {
@@ -409,12 +413,18 @@ usage_main() {
     echo "Usage: $0 <provider> <command> [options]"
     echo ""
     echo "Providers:"
-    local _lvar _pname _plower
+    local _lvar _pname _plower _cfg_var _descr
     while IFS= read -r _lvar; do
         _pname="${_lvar#PROVIDER_}"
         _pname="${_pname%_LABEL}"
         _plower=$(printf '%s' "$_pname" | tr '[:upper:]' '[:lower:]')
-        printf "  %-10s %s\n" "$_plower" "${!_lvar} — config, hooks, and GitHub Actions workflows"
+        _cfg_var="PROVIDER_${_pname}_CONFIG_DIR"
+        if [[ -v "$_cfg_var" ]]; then
+            _descr="config, hooks, and GitHub Actions workflows"
+        else
+            _descr="GitHub Actions workflows only"
+        fi
+        printf "  %-10s %s\n" "$_plower" "${!_lvar} — ${_descr}"
     done < <(compgen -v PROVIDER_ | grep '_LABEL$' | sort)
     printf "  %-10s %s\n" "all" "Install/update all providers at once"
     echo ""
@@ -459,7 +469,7 @@ for arg in "$@"; do
             for _p in "${_providers[@]}"; do
                 _upper_p=$(printf '%s' "$_p" | tr '[:lower:]' '[:upper:]')
                 _wf_var="PROVIDER_${_upper_p}_WORKFLOWS"
-                if [[ -n "${!_wf_var+x}" ]]; then
+                if [[ -v "$_wf_var" ]]; then
                     PROVIDERS_ENABLED+=("$_p")
                 else
                     warn "Unknown provider '$_p' in --ai; ignoring"
@@ -485,7 +495,7 @@ while [ $_i -lt ${#_args[@]} ]; do
             for _p in "${_providers[@]}"; do
                 _upper_p=$(printf '%s' "$_p" | tr '[:lower:]' '[:upper:]')
                 _wf_var="PROVIDER_${_upper_p}_WORKFLOWS"
-                if [[ -n "${!_wf_var+x}" ]]; then
+                if [[ -v "$_wf_var" ]]; then
                     PROVIDERS_ENABLED+=("$_p")
                 else
                     warn "Unknown provider '$_p' in --ai; ignoring"
@@ -527,15 +537,17 @@ case "$AGENT" in
         esac
         ;;
     all)
-        if [ ${#PROVIDERS_ENABLED[@]} -eq 0 ]; then
-            _wf_var=""
+        if [ ${#PROVIDERS_ENABLED[@]} -gt 0 ]; then
+            warn "'all' with --ai/--gemini: operating on specified providers only, not all"
+        else
+            _lvar=""
             _pname=""
-            while IFS= read -r _wf_var; do
-                _pname="${_wf_var#PROVIDER_}"
-                _pname="${_pname%_WORKFLOWS}"
+            while IFS= read -r _lvar; do
+                _pname="${_lvar#PROVIDER_}"
+                _pname="${_pname%_LABEL}"
                 _pname=$(printf '%s' "$_pname" | tr '[:upper:]' '[:lower:]')
                 PROVIDERS_ENABLED+=("$_pname")
-            done < <(compgen -v PROVIDER_ | grep '_WORKFLOWS$' | sort)
+            done < <(compgen -v PROVIDER_ | grep '_LABEL$' | sort)
         fi
         dedup_providers
         case "${1:-}" in

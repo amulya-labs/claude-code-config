@@ -344,7 +344,7 @@ else
         "Expected 'Quick start:' in usage_main()"
 fi
 
-if grep -A30 'usage_main()' "$MANAGE_SCRIPT" | grep -q 'all install'; then
+if grep -A40 'usage_main()' "$MANAGE_SCRIPT" | grep -q 'all install'; then
     assert "usage_main() shows 'all install' example" "pass"
 else
     assert "usage_main() shows 'all install' example" "fail"
