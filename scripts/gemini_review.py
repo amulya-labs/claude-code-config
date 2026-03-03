@@ -45,12 +45,29 @@ CACHE_MIN_TOKENS = 32_000
 # Cache TTL: 12 hours in seconds
 CACHE_TTL_SECONDS = 12 * 3600
 
-# File extensions / name patterns to skip when building the cache corpus
+# Retry configuration for transient API errors (429, 5xx)
+RETRY_MAX_ATTEMPTS = 3
+RETRY_BASE_DELAY_SECONDS = 2  # doubles each attempt: 2s, 4s, 8s
+
+# HTTP status codes that warrant a retry
+RETRYABLE_EXCEPTION_SUBSTRINGS = ("429", "500", "502", "503", "504", "quota", "rate")
+
+# File extensions / name patterns to skip when building the cache corpus.
+# Covers lock files, build artifacts, compiled assets, AND common secret/credential files.
 SKIP_PATTERNS = re.compile(
+    # Lock files
     r"package-lock\.json$|yarn\.lock$|pnpm-lock\.yaml$|Cargo\.lock$"
     r"|Gemfile\.lock$|poetry\.lock$|composer\.lock$"
+    # Minified / data files
     r"|\.min\.(js|css)$|\.csv$|\.tsv$|\.pb$|\.bin$"
+    # Tooling dirs
     r"|node_modules/|\.git/|__pycache__/|\.pyc$"
+    # Secret / credential files
+    r"|\.env$|\.env\."
+    r"|\.pem$|\.key$|\.p12$|\.pfx$|\.crt$|\.cer$"
+    r"|\.tfvars$|\.tfstate$|\.tfstate\.backup$"
+    r"|credential|secret|\.vault$"
+    r"|id_rsa|id_ed25519|id_ecdsa|id_dsa"
 )
 
 # Binary-like extensions to skip entirely
@@ -121,7 +138,14 @@ def load_diff() -> str:
 
 
 def truncate_diff(diff: str, max_chars: int = 500_000) -> str:
-    """Truncate diff at max_chars, adding a notice if truncated."""
+    """
+    Truncate diff at max_chars, adding a notice if truncated.
+
+    Note: the 500k char limit is intentionally conservative relative to the
+    1M-token TOKEN_LIMIT. At roughly 3-4 chars per token, 500k chars maps to
+    approximately 125k-167k tokens for the diff alone, leaving ample headroom
+    for the prompt template and any cached corpus content.
+    """
     if len(diff) <= max_chars:
         return diff
     truncated = diff[:max_chars]
@@ -132,7 +156,8 @@ def truncate_diff(diff: str, max_chars: int = 500_000) -> str:
 def build_cache_corpus() -> str:
     """
     Walk the current directory and collect all text source files into a single
-    string to use as the context cache corpus. Skips binaries, lock files, etc.
+    string to use as the context cache corpus. Skips binaries, lock files,
+    and secret/credential files to avoid uploading sensitive data to the API.
     """
     parts = []
     cwd = Path(".")
@@ -140,7 +165,7 @@ def build_cache_corpus() -> str:
         if not path.is_file():
             continue
         rel = str(path)
-        # Skip by name pattern
+        # Skip by name pattern (lock files, build artifacts, secrets)
         if SKIP_PATTERNS.search(rel):
             continue
         # Skip by extension
@@ -172,10 +197,10 @@ def parse_json_response(raw_text: str) -> list:
     Strip markdown code fences and parse as a JSON array.
     Returns empty list on failure.
     """
-    # Strip markdown code fences
     clean = raw_text.strip()
-    clean = re.sub(r"^```json\s*", "", clean)
-    clean = re.sub(r"^```\s*", "", clean)
+    # Strip an opening ```json or ``` fence (only one of these can match)
+    clean = re.sub(r"^```(?:json)?\s*", "", clean)
+    # Strip a closing ``` fence
     clean = re.sub(r"\s*```$", "", clean)
     clean = clean.strip()
 
@@ -188,6 +213,36 @@ def parse_json_response(raw_text: str) -> list:
     except json.JSONDecodeError as exc:
         log(f"WARNING: Failed to parse JSON response: {exc}")
         return []
+
+
+def _is_retryable_error(exc: Exception) -> bool:
+    """Return True if the exception looks like a transient quota or server error."""
+    msg = str(exc).lower()
+    return any(substr in msg for substr in RETRYABLE_EXCEPTION_SUBSTRINGS)
+
+
+def _call_with_retry(fn, description: str):
+    """
+    Call fn() with exponential-backoff retry on transient errors (429, 5xx).
+    Raises the last exception if all attempts are exhausted.
+    """
+    delay = RETRY_BASE_DELAY_SECONDS
+    last_exc = None
+    for attempt in range(1, RETRY_MAX_ATTEMPTS + 1):
+        try:
+            return fn()
+        except Exception as exc:
+            last_exc = exc
+            if attempt < RETRY_MAX_ATTEMPTS and _is_retryable_error(exc):
+                log(
+                    f"WARNING: {description} attempt {attempt}/{RETRY_MAX_ATTEMPTS} "
+                    f"failed with transient error: {exc}; retrying in {delay}s..."
+                )
+                time.sleep(delay)
+                delay *= 2
+            else:
+                raise
+    raise last_exc  # unreachable but satisfies type checkers
 
 
 # ---------------------------------------------------------------------------
@@ -206,11 +261,14 @@ def find_existing_cache(client, display_name: str):
             expire_time = getattr(cache, "expire_time", None)
             if expire_time is None:
                 return cache
-            # expire_time may be a datetime object or an ISO string
+            # expire_time may be a datetime object (aware or naive) or an ISO string
             if isinstance(expire_time, datetime):
                 exp_dt = expire_time
             else:
                 exp_dt = datetime.fromisoformat(str(expire_time).replace("Z", "+00:00"))
+            # Ensure exp_dt is timezone-aware before comparing with UTC now
+            if exp_dt.tzinfo is None:
+                exp_dt = exp_dt.replace(tzinfo=timezone.utc)
             if exp_dt > datetime.now(timezone.utc):
                 log(f"Found valid existing cache: {cache.name} (expires {exp_dt})")
                 return cache
@@ -225,7 +283,6 @@ def create_cache(client, model: str, corpus: str, display_name: str):
     Create a new context cache with the repo corpus.
     Returns the cache object, or None if creation fails or corpus too small.
     """
-    from google import genai
     from google.genai import types
 
     # Count tokens in the corpus first
@@ -272,12 +329,16 @@ def create_cache(client, model: str, corpus: str, display_name: str):
 # ---------------------------------------------------------------------------
 
 def run_review_direct(client, model: str, prompt: str) -> list:
-    """Send the prompt directly to the model (no caching)."""
+    """
+    Send the prompt directly to the model (no caching).
+    Retries on transient 429/5xx errors with exponential backoff.
+    """
     from google.genai import types
 
     log(f"Running inline review via {model} (direct, no cache)...")
-    try:
-        response = client.models.generate_content(
+
+    def _call():
+        return client.models.generate_content(
             model=model,
             contents=prompt,
             config=types.GenerateContentConfig(
@@ -285,21 +346,28 @@ def run_review_direct(client, model: str, prompt: str) -> list:
                 max_output_tokens=4096,
             ),
         )
+
+    try:
+        response = _call_with_retry(_call, f"generate_content ({model})")
         raw = response.text or ""
         return parse_json_response(raw)
     except Exception as exc:
-        log(f"WARNING: Gemini API call failed: {exc}")
+        log(f"WARNING: Gemini API call failed after all retries: {exc}")
         return []
 
 
 def run_review_with_cache(client, model: str, cache_name: str, diff: str) -> list:
-    """Send the prompt with a context cache reference."""
+    """
+    Send the prompt with a context cache reference.
+    Retries on transient errors; falls back to direct call on cache errors.
+    """
     from google.genai import types
 
     prompt = INLINE_PROMPT_TEMPLATE.format(diff=diff)
     log(f"Running inline review via {model} (with cache {cache_name})...")
-    try:
-        response = client.models.generate_content(
+
+    def _call():
+        return client.models.generate_content(
             model=model,
             contents=prompt,
             config=types.GenerateContentConfig(
@@ -308,6 +376,9 @@ def run_review_with_cache(client, model: str, cache_name: str, diff: str) -> lis
                 cached_content=cache_name,
             ),
         )
+
+    try:
+        response = _call_with_retry(_call, f"generate_content with cache ({model})")
         raw = response.text or ""
         return parse_json_response(raw)
     except Exception as exc:
@@ -334,9 +405,8 @@ def main() -> None:
     # Import the SDK
     try:
         from google import genai
-        from google.genai import types
     except ImportError:
-        die("google-generativeai is not installed. Run: pip install google-generativeai")
+        die("google-genai is not installed. Run: pip install google-genai")
 
     client = genai.Client(api_key=GEMINI_API_KEY)
 
@@ -358,8 +428,10 @@ def main() -> None:
         write_output([])
         return
 
-    # Determine whether to use caching
-    is_pro_model = "pro" in SELECTED_MODEL.lower() or "1.5" in SELECTED_MODEL
+    # Determine whether to use caching.
+    # Only "pro" tier models support context caching; do NOT match on version
+    # strings like "1.5" which would incorrectly classify gemini-1.5-flash as Pro.
+    is_pro_model = "pro" in SELECTED_MODEL.lower()
 
     if USE_CACHE and is_pro_model and REPO:
         display_name = f"cache-{repo_slug(REPO)}"

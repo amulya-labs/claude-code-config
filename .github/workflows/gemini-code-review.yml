@@ -95,7 +95,7 @@ jobs:
           fi
 
       - name: Install Python dependencies
-        run: pip install google-generativeai --quiet
+        run: pip install google-genai --quiet
 
       - name: Determine review model
         id: model
@@ -456,7 +456,7 @@ jobs:
             -f content='eyes'
 
       - name: Install Python dependencies
-        run: pip install google-generativeai --quiet
+        run: pip install google-genai --quiet
 
       - name: Determine review model
         id: model
@@ -616,20 +616,23 @@ jobs:
           else
             # Fetch gemini_review.py from the default branch of this repository
             # (safe: this is the workflow owner's own code, not PR author's code)
-            curl -fsSL \
+            if ! curl -fsSL \
               -H "Authorization: Bearer ${GH_TOKEN}" \
               -H "Accept: application/vnd.github.raw+json" \
               "https://api.github.com/repos/${REPO}/contents/scripts/gemini_review.py" \
-              -o /tmp/gemini_review.py 2>/dev/null || true
-            if [ ! -s /tmp/gemini_review.py ]; then
-              echo "WARNING: Could not fetch gemini_review.py; skipping inline review." >&2
+              -o /tmp/gemini_review.py; then
+              echo "WARNING: curl failed to fetch gemini_review.py (exit $?); skipping inline review." >&2
+              echo "[]" > /tmp/inline-comments.json
+            elif [ ! -s /tmp/gemini_review.py ]; then
+              echo "WARNING: gemini_review.py was fetched but is empty; skipping inline review." >&2
               echo "[]" > /tmp/inline-comments.json
             else
               DIFF_FOCUSED="/tmp/pr-focused.diff" \
               SELECTED_MODEL="${SELECTED_MODEL}" \
               USE_CACHE="0" \
               OUTPUT_FILE="/tmp/inline-comments.json" \
-              python3 /tmp/gemini_review.py || true
+              python3 /tmp/gemini_review.py || \
+                echo "WARNING: gemini_review.py exited non-zero (exit $?); inline review may be incomplete." >&2
               # Fall back to empty array if the script failed to write output
               if [ ! -f /tmp/inline-comments.json ]; then
                 echo "[]" > /tmp/inline-comments.json
