@@ -127,15 +127,16 @@ jobs:
           USE_CACHE: ${{ steps.model.outputs.use_cache }}
         run: |
           # Helper: call Gemini API with exponential-backoff retry on 429/5xx
+          # $1 = URL, $2 = path to JSON payload file (avoids ARG_MAX with large diffs)
           gemini_api_call() {
-            local url="$1" payload="$2"
+            local url="$1" payload_file="$2"
             local attempt delay http_code
             delay=2
             for attempt in 1 2 3; do
               http_code=$(curl -s \
                 -o /tmp/gemini-resp.json \
                 -w '%{http_code}' \
-                "$url" -H 'Content-Type: application/json' -d "$payload" 2>/dev/null)
+                "$url" -H 'Content-Type: application/json' -d "@$payload_file" 2>/dev/null)
               case "$http_code" in
                 200) cat /tmp/gemini-resp.json; return 0 ;;
                 429|500|502|503|504)
@@ -171,7 +172,6 @@ jobs:
           else
             cp /tmp/pr-full.diff /tmp/pr.diff
           fi
-          DIFF=$(cat /tmp/pr.diff)
 
           # Filter non-code files before sending to Pro (lock files, compiled assets, data files)
           python3 -c '
@@ -184,56 +184,35 @@ jobs:
               if not skip:
                   sys.stdout.write(line)
           ' < /tmp/pr.diff > /tmp/pr-focused.diff
-          DIFF_FOCUSED=$(cat /tmp/pr-focused.diff)
-
           # Light review: skip inline comments regardless of PR size
           if [ "${MODE}" = "light" ]; then
             REVIEW_STRATEGY="summary"
           fi
 
           # --- Phase 1: Summary via Gemini Flash ---
+          # Write prompt to a file to avoid ARG_MAX when passing large diffs to jq/curl
           if [ "${MODE}" = "light" ]; then
-            SUMMARY_PROMPT="You are performing a QUICK code review of this pull request.
-
-          PR Title: ${PR_TITLE}
-          ${FILES} files changed, ${LINES} lines (additions + deletions)
-
-          Git Diff:
-          ${DIFF}
-
-          Quick scan — focus only on:
-          1. Obvious bugs or logic errors
-          2. Security issues (injection, auth, exposed secrets)
-          3. Breaking changes or missing error handling
-
-          Format: two short paragraphs (no headers, no bullets, no bold labels).
-          First: what the PR does in one sentence, then any critical issues found.
-          Second: overall verdict — looks good / needs changes / flag for deep review.
-          Keep it under 100 words. If purely mechanical (renames, deps, formatting), just confirm it looks fine."
+            printf 'You are performing a QUICK code review of this pull request.\n\nPR Title: %s\n%s files changed, %s lines (additions + deletions)\n\nGit Diff:\n' \
+              "$PR_TITLE" "$FILES" "$LINES" > /tmp/summary-prompt.txt
+            cat /tmp/pr.diff >> /tmp/summary-prompt.txt
+            printf '\nQuick scan — focus only on:\n1. Obvious bugs or logic errors\n2. Security issues (injection, auth, exposed secrets)\n3. Breaking changes or missing error handling\n\nFormat: two short paragraphs (no headers, no bullets, no bold labels).\nFirst: what the PR does in one sentence, then any critical issues found.\nSecond: overall verdict — looks good / needs changes / flag for deep review.\nKeep it under 100 words. If purely mechanical (renames, deps, formatting), just confirm it looks fine.' \
+              >> /tmp/summary-prompt.txt
           else
-            SUMMARY_PROMPT="You are an experienced engineering lead reviewing a pull request for your team.
-          Write a concise narrative summary of these changes in exactly three paragraphs — no headers, no bullet points, no bold labels.
-
-          PR Title: ${PR_TITLE}
-          PR Description: ${PR_BODY}
-
-          Git Diff:
-          ${DIFF}
-
-          First paragraph: Describe the overall intent and motivation for the change in plain language.
-          Second paragraph: Explain the key technical decisions — what logic was added, restructured, or removed, and why it matters.
-          Third paragraph: Give your honest read on the nature of this change (e.g. a targeted bug fix, a careful refactor, a broad feature addition) and flag any areas that deserve closer attention during review.
-
-          Write as a thoughtful colleague, not as a template-filling bot. Keep it under 200 words total.
-          Do not include any markdown headers or code fences in your response."
+            printf 'You are an experienced engineering lead reviewing a pull request for your team.\nWrite a concise narrative summary of these changes in exactly three paragraphs — no headers, no bullet points, no bold labels.\n\nPR Title: %s\nPR Description: %s\n\nGit Diff:\n' \
+              "$PR_TITLE" "$PR_BODY" > /tmp/summary-prompt.txt
+            cat /tmp/pr.diff >> /tmp/summary-prompt.txt
+            printf '\nFirst paragraph: Describe the overall intent and motivation for the change in plain language.\nSecond paragraph: Explain the key technical decisions — what logic was added, restructured, or removed, and why it matters.\nThird paragraph: Give your honest read on the nature of this change (e.g. a targeted bug fix, a careful refactor, a broad feature addition) and flag any areas that deserve closer attention during review.\n\nWrite as a thoughtful colleague, not as a template-filling bot. Keep it under 200 words total.\nDo not include any markdown headers or code fences in your response.' \
+              >> /tmp/summary-prompt.txt
           fi
+
+          jq -n --rawfile prompt /tmp/summary-prompt.txt '{
+            contents: [{parts: [{text: $prompt}]}],
+            generationConfig: {temperature: 0.3, maxOutputTokens: 512}
+          }' > /tmp/gemini-flash-payload.json
 
           FLASH_RESPONSE=$(gemini_api_call \
             "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}" \
-            "$(jq -n --arg prompt "$SUMMARY_PROMPT" '{
-              contents: [{parts: [{text: $prompt}]}],
-              generationConfig: {temperature: 0.3, maxOutputTokens: 512}
-            }')")
+            "/tmp/gemini-flash-payload.json")
 
           SUMMARY_TEXT=$(echo "$FLASH_RESPONSE" | jq -r '.candidates[0].content.parts[0].text // empty' 2>/dev/null)
           if [ -z "$SUMMARY_TEXT" ]; then
@@ -487,15 +466,16 @@ jobs:
           USE_CACHE: "0"
         run: |
           # Helper: call Gemini API with exponential-backoff retry on 429/5xx
+          # $1 = URL, $2 = path to JSON payload file (avoids ARG_MAX with large diffs)
           gemini_api_call() {
-            local url="$1" payload="$2"
+            local url="$1" payload_file="$2"
             local attempt delay http_code
             delay=2
             for attempt in 1 2 3; do
               http_code=$(curl -s \
                 -o /tmp/gemini-resp.json \
                 -w '%{http_code}' \
-                "$url" -H 'Content-Type: application/json' -d "$payload" 2>/dev/null)
+                "$url" -H 'Content-Type: application/json' -d "@$payload_file" 2>/dev/null)
               case "$http_code" in
                 200) cat /tmp/gemini-resp.json; return 0 ;;
                 429|500|502|503|504)
@@ -538,7 +518,6 @@ jobs:
           else
             cp /tmp/pr-full.diff /tmp/pr.diff
           fi
-          DIFF=$(cat /tmp/pr.diff)
 
           # Filter non-code files before sending to Pro (lock files, compiled assets, data files)
           python3 -c '
@@ -551,56 +530,35 @@ jobs:
               if not skip:
                   sys.stdout.write(line)
           ' < /tmp/pr.diff > /tmp/pr-focused.diff
-          DIFF_FOCUSED=$(cat /tmp/pr-focused.diff)
-
           # Light review: skip inline comments regardless of PR size
           if [ "${MODE}" = "light" ]; then
             REVIEW_STRATEGY="summary"
           fi
 
           # --- Phase 1: Summary via Gemini Flash ---
+          # Write prompt to a file to avoid ARG_MAX when passing large diffs to jq/curl
           if [ "${MODE}" = "light" ]; then
-            SUMMARY_PROMPT="You are performing a QUICK code review of this pull request.
-
-          PR Title: ${PR_TITLE}
-          ${FILES} files changed, ${LINES} lines (additions + deletions)
-
-          Git Diff:
-          ${DIFF}
-
-          Quick scan — focus only on:
-          1. Obvious bugs or logic errors
-          2. Security issues (injection, auth, exposed secrets)
-          3. Breaking changes or missing error handling
-
-          Format: two short paragraphs (no headers, no bullets, no bold labels).
-          First: what the PR does in one sentence, then any critical issues found.
-          Second: overall verdict — looks good / needs changes / flag for deep review.
-          Keep it under 100 words. If purely mechanical (renames, deps, formatting), just confirm it looks fine."
+            printf 'You are performing a QUICK code review of this pull request.\n\nPR Title: %s\n%s files changed, %s lines (additions + deletions)\n\nGit Diff:\n' \
+              "$PR_TITLE" "$FILES" "$LINES" > /tmp/summary-prompt.txt
+            cat /tmp/pr.diff >> /tmp/summary-prompt.txt
+            printf '\nQuick scan — focus only on:\n1. Obvious bugs or logic errors\n2. Security issues (injection, auth, exposed secrets)\n3. Breaking changes or missing error handling\n\nFormat: two short paragraphs (no headers, no bullets, no bold labels).\nFirst: what the PR does in one sentence, then any critical issues found.\nSecond: overall verdict — looks good / needs changes / flag for deep review.\nKeep it under 100 words. If purely mechanical (renames, deps, formatting), just confirm it looks fine.' \
+              >> /tmp/summary-prompt.txt
           else
-            SUMMARY_PROMPT="You are an experienced engineering lead reviewing a pull request for your team.
-          Write a concise narrative summary of these changes in exactly three paragraphs — no headers, no bullet points, no bold labels.
-
-          PR Title: ${PR_TITLE}
-          PR Description: ${PR_BODY}
-
-          Git Diff:
-          ${DIFF}
-
-          First paragraph: Describe the overall intent and motivation for the change in plain language.
-          Second paragraph: Explain the key technical decisions — what logic was added, restructured, or removed, and why it matters.
-          Third paragraph: Give your honest read on the nature of this change (e.g. a targeted bug fix, a careful refactor, a broad feature addition) and flag any areas that deserve closer attention during review.
-
-          Write as a thoughtful colleague, not as a template-filling bot. Keep it under 200 words total.
-          Do not include any markdown headers or code fences in your response."
+            printf 'You are an experienced engineering lead reviewing a pull request for your team.\nWrite a concise narrative summary of these changes in exactly three paragraphs — no headers, no bullet points, no bold labels.\n\nPR Title: %s\nPR Description: %s\n\nGit Diff:\n' \
+              "$PR_TITLE" "$PR_BODY" > /tmp/summary-prompt.txt
+            cat /tmp/pr.diff >> /tmp/summary-prompt.txt
+            printf '\nFirst paragraph: Describe the overall intent and motivation for the change in plain language.\nSecond paragraph: Explain the key technical decisions — what logic was added, restructured, or removed, and why it matters.\nThird paragraph: Give your honest read on the nature of this change (e.g. a targeted bug fix, a careful refactor, a broad feature addition) and flag any areas that deserve closer attention during review.\n\nWrite as a thoughtful colleague, not as a template-filling bot. Keep it under 200 words total.\nDo not include any markdown headers or code fences in your response.' \
+              >> /tmp/summary-prompt.txt
           fi
+
+          jq -n --rawfile prompt /tmp/summary-prompt.txt '{
+            contents: [{parts: [{text: $prompt}]}],
+            generationConfig: {temperature: 0.3, maxOutputTokens: 512}
+          }' > /tmp/gemini-flash-payload.json
 
           FLASH_RESPONSE=$(gemini_api_call \
             "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}" \
-            "$(jq -n --arg prompt "$SUMMARY_PROMPT" '{
-              contents: [{parts: [{text: $prompt}]}],
-              generationConfig: {temperature: 0.3, maxOutputTokens: 512}
-            }')")
+            "/tmp/gemini-flash-payload.json")
 
           SUMMARY_TEXT=$(echo "$FLASH_RESPONSE" | jq -r '.candidates[0].content.parts[0].text // empty' 2>/dev/null)
           if [ -z "$SUMMARY_TEXT" ]; then
