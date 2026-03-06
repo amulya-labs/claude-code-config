@@ -3,7 +3,7 @@
 [![CI](https://github.com/amulya-labs/ai-dev-foundry/actions/workflows/ci.yml/badge.svg)](https://github.com/amulya-labs/ai-dev-foundry/actions/workflows/ci.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/amulya-labs/ai-dev-foundry/badge)](https://scorecard.dev/viewer/?uri=github.com/amulya-labs/ai-dev-foundry)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Agents](https://img.shields.io/badge/agents-19-blue.svg)](.claude/agents/)
+[![Agents](https://img.shields.io/badge/agents-22-blue.svg)](.claude/agents/)
 
 **Production-ready configuration for AI coding agents.** Agents, hooks, and settings you can drop into any project.
 
@@ -49,18 +49,21 @@ mkdir -p scripts && curl -fsSL -o scripts/manage-ai-configs.sh https://raw.githu
 ### Data & ML
 | Agent | What it does |
 |-------|--------------|
+| **data-engineer** | Designs and reviews ETL/ELT pipelines, data models, orchestration, and data quality strategies |
 | **ml-architect** | Designs ML systems end-to-end: data pipelines, training, serving, monitoring |
+
+### Design
+| Agent | What it does |
+|-------|--------------|
+| **ux-designer** | Research-backed UX critique covering usability, accessibility, information architecture, and business alignment |
+| **ui-developer** | Pixel-perfect UI implementation with design system thinking, animation performance, and component quality |
+| **digital-designer** | Creates print-ready layouts (booklets, brochures, posters) |
 
 ### Sales / Solutions
 | Agent | What it does |
 |-------|--------------|
 | **solution-eng** | Runs discovery, designs solutions, manages POCs |
 | **marketing-lead** | Crafts positioning, messaging, and go-to-market copy that converts |
-
-### Creative
-| Agent | What it does |
-|-------|--------------|
-| **digital-designer** | Creates print-ready layouts (booklets, brochures, posters) |
 
 ## Usage
 
@@ -81,8 +84,9 @@ Claude can also select agents automatically based on your request.
 
 <table>
 <tr><th>Agent</th><th>Description</th><th>Model</th></tr>
-<tr><td>agent-specialist</td><td>Design and optimize AI agents with strong contracts</td><td rowspan="11">opus</td></tr>
+<tr><td>agent-specialist</td><td>Design and optimize AI agents with strong contracts</td><td rowspan="13">opus</td></tr>
 <tr><td>claudemd-architect</td><td>Create and update CLAUDE.md files for agent-ready repos</td></tr>
+<tr><td>data-engineer</td><td>ETL/ELT pipelines, data modeling, orchestration, and data quality</td></tr>
 <tr><td>marketing-lead</td><td>Positioning, messaging, and go-to-market copy</td></tr>
 <tr><td>ml-architect</td><td>End-to-end ML system design and production ML decisions</td></tr>
 <tr><td>prod-engineer</td><td>Production incident response and reliability engineering</td></tr>
@@ -92,7 +96,8 @@ Claude can also select agents automatically based on your request.
 <tr><td>solution-eng</td><td>Technical sales, discovery, POCs, and solution design</td></tr>
 <tr><td>systems-architect</td><td>High-level architecture guidance</td></tr>
 <tr><td>tech-lead</td><td>Plan implementation approaches, break down tasks</td></tr>
-<tr><td>code-reviewer</td><td>Thorough code reviews for quality and security</td><td rowspan="8">sonnet</td></tr>
+<tr><td>ux-designer</td><td>UX critique covering usability, accessibility, and business alignment</td></tr>
+<tr><td>code-reviewer</td><td>Thorough code reviews for quality and security</td><td rowspan="9">sonnet</td></tr>
 <tr><td>debugger</td><td>Systematic bug investigation and root cause analysis</td></tr>
 <tr><td>digital-designer</td><td>Print-ready layouts for booklets, brochures, posters</td></tr>
 <tr><td>documentation-writer</td><td>Clear, minimal documentation following DRY principles</td></tr>
@@ -100,6 +105,7 @@ Claude can also select agents automatically based on your request.
 <tr><td>refactoring-expert</td><td>Improve code structure safely</td></tr>
 <tr><td>senior-dev</td><td>Feature implementation with best practices</td></tr>
 <tr><td>test-engineer</td><td>Comprehensive test suite design</td></tr>
+<tr><td>ui-developer</td><td>Pixel-perfect UI implementation with design system thinking</td></tr>
 <tr><td>junior-dev</td><td>Focused, well-scoped tasks for early-career developers</td><td>haiku</td></tr>
 </table>
 
