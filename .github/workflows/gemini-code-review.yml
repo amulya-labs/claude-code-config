@@ -103,7 +103,7 @@ jobs:
           COMMENT_BODY: ${{ github.event.comment.body }}
         run: |
           if [[ "$COMMENT_BODY" == /gemini-light-review* ]]; then
-            echo "model=gemini-2.0-flash" >> "$GITHUB_OUTPUT"
+            echo "model=gemini-2.5-flash" >> "$GITHUB_OUTPUT"
             echo "mode=light" >> "$GITHUB_OUTPUT"
             echo "use_cache=0" >> "$GITHUB_OUTPUT"
           else
@@ -150,6 +150,8 @@ jobs:
             echo "WARNING: Gemini API failed after 3 attempts (last HTTP $http_code)" >&2
             cat /tmp/gemini-resp.json
           }
+
+          FLASH_MODEL="gemini-2.5-flash"
 
           # Fetch PR metadata
           gh pr view "$PR_NUMBER" \
@@ -211,7 +213,7 @@ jobs:
           }' > /tmp/gemini-flash-payload.json
 
           FLASH_RESPONSE=$(gemini_api_call \
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}" \
+            "https://generativelanguage.googleapis.com/v1beta/models/${FLASH_MODEL}:generateContent?key=${GEMINI_API_KEY}" \
             "/tmp/gemini-flash-payload.json")
 
           SUMMARY_TEXT=$(echo "$FLASH_RESPONSE" | jq -r '.candidates[0].content.parts[0].text // empty' 2>/dev/null)
@@ -443,7 +445,7 @@ jobs:
           COMMENT_BODY: ${{ github.event.comment.body }}
         run: |
           if [[ "$COMMENT_BODY" == /gemini-light-review* ]]; then
-            echo "model=gemini-2.0-flash" >> "$GITHUB_OUTPUT"
+            echo "model=gemini-2.5-flash" >> "$GITHUB_OUTPUT"
             echo "mode=light" >> "$GITHUB_OUTPUT"
           else
             echo "model=gemini-2.5-pro" >> "$GITHUB_OUTPUT"
@@ -489,6 +491,8 @@ jobs:
             echo "WARNING: Gemini API failed after 3 attempts (last HTTP $http_code)" >&2
             cat /tmp/gemini-resp.json
           }
+
+          FLASH_MODEL="gemini-2.5-flash"
 
           # Fetch PR metadata (no local checkout — use gh with --repo for all access)
           gh pr view "$PR_NUMBER" \
@@ -557,7 +561,7 @@ jobs:
           }' > /tmp/gemini-flash-payload.json
 
           FLASH_RESPONSE=$(gemini_api_call \
-            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}" \
+            "https://generativelanguage.googleapis.com/v1beta/models/${FLASH_MODEL}:generateContent?key=${GEMINI_API_KEY}" \
             "/tmp/gemini-flash-payload.json")
 
           SUMMARY_TEXT=$(echo "$FLASH_RESPONSE" | jq -r '.candidates[0].content.parts[0].text // empty' 2>/dev/null)

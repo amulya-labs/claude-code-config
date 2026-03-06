@@ -11,7 +11,7 @@ findings to OUTPUT_FILE.
 Environment variables:
   GEMINI_API_KEY   Required. Gemini API key.
   DIFF_FOCUSED     Required. Path to the focused diff file, or raw diff content.
-  SELECTED_MODEL   Default: gemini-2.0-flash. The Gemini model to use.
+  SELECTED_MODEL   Default: gemini-2.5-flash. The Gemini model to use.
   REPO             Required when USE_CACHE=1. Org/repo slug (e.g. owner/repo).
   USE_CACHE        Default: 0. Set to 1 to enable context caching (Pro only).
   OUTPUT_FILE      Default: /tmp/inline-comments.json. Where to write results.
@@ -31,7 +31,7 @@ from pathlib import Path
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 DIFF_FOCUSED_INPUT = os.environ.get("DIFF_FOCUSED", "")
-SELECTED_MODEL = os.environ.get("SELECTED_MODEL", "gemini-2.0-flash")
+SELECTED_MODEL = os.environ.get("SELECTED_MODEL", "gemini-2.5-flash")
 REPO = os.environ.get("REPO", "")
 USE_CACHE = os.environ.get("USE_CACHE", "0").strip() == "1"
 OUTPUT_FILE = os.environ.get("OUTPUT_FILE", "/tmp/inline-comments.json")
