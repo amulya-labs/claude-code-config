@@ -100,6 +100,8 @@ jobs:
               output_file = f"nlm-sources/{name}.txt"
 
               cmd = ["repomix", "--style", "plain", "--output", output_file]
+              if os.path.isfile(".github/repomix.config.json"):
+                  cmd.extend(["--config", ".github/repomix.config.json"])
               for pattern in include:
                   cmd.extend(["--include", pattern])
               for pattern in ignore:

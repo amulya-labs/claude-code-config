@@ -61,7 +61,7 @@ PROVIDER_NOTEBOOKLM_SECRETS="NLM_COOKIES_JSON NLM_NOTEBOOK_ID"
 PROVIDER_NOTEBOOKLM_LABEL="NotebookLM"
 # Extra files to install alongside workflows (relative to repo root)
 # shellcheck disable=SC2034
-PROVIDER_NOTEBOOKLM_EXTRA_FILES=".repomixignore"
+PROVIDER_NOTEBOOKLM_EXTRA_FILES=".github/repomix.config.json"
 # NotebookLM has no local config dir — workflow-only
 
 # Populated by flag parsing; positional agent arg also adds entries here
@@ -460,7 +460,7 @@ usage_notebooklm() {
     echo ""
     echo "This downloads:"
     echo "  .github/workflows/sync-notebooklm.yml  - Automated NotebookLM sync on push to main"
-    echo "  .repomixignore                            - Universal ignore patterns for repomix"
+    echo "  .github/repomix.config.json               - Universal ignore patterns for repomix"
     echo "  (requires NLM_COOKIES_JSON and NLM_NOTEBOOK_ID secrets in repo)"
     echo ""
     echo "You must also create .github/notebooklm-sources.yaml defining your source splits."
