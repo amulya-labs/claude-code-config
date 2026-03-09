@@ -195,8 +195,12 @@ def write_output(data: list) -> None:
 def parse_json_response(raw_text: str) -> list:
     """
     Strip markdown code fences and parse as a JSON array.
-    Returns empty list on failure.
+    Raises ValueError on empty or unparseable responses.
+    Returns an empty list only when the model legitimately returned [].
     """
+    if not raw_text or not raw_text.strip():
+        raise ValueError("Gemini returned an empty response")
+
     clean = raw_text.strip()
     # Strip an opening ```json or ``` fence (only one of these can match)
     clean = re.sub(r"^```(?:json)?\s*", "", clean)
@@ -208,11 +212,9 @@ def parse_json_response(raw_text: str) -> list:
         parsed = json.loads(clean)
         if isinstance(parsed, list):
             return parsed
-        log("WARNING: Response JSON is not an array; returning empty list")
-        return []
+        raise ValueError(f"Response JSON is not an array: {type(parsed).__name__}")
     except json.JSONDecodeError as exc:
-        log(f"WARNING: Failed to parse JSON response: {exc}")
-        return []
+        raise ValueError(f"Failed to parse JSON response: {exc}") from exc
 
 
 def _is_retryable_error(exc: Exception) -> bool:
@@ -347,13 +349,9 @@ def run_review_direct(client, model: str, prompt: str) -> list:
             ),
         )
 
-    try:
-        response = _call_with_retry(_call, f"generate_content ({model})")
-        raw = response.text or ""
-        return parse_json_response(raw)
-    except Exception as exc:
-        log(f"WARNING: Gemini API call failed after all retries: {exc}")
-        return []
+    response = _call_with_retry(_call, f"generate_content ({model})")
+    raw = response.text or ""
+    return parse_json_response(raw)
 
 
 def run_review_with_cache(client, model: str, cache_name: str, diff: str) -> list:
@@ -381,8 +379,11 @@ def run_review_with_cache(client, model: str, cache_name: str, diff: str) -> lis
         response = _call_with_retry(_call, f"generate_content with cache ({model})")
         raw = response.text or ""
         return parse_json_response(raw)
+    except ValueError:
+        raise  # parse failures should not be silenced
     except Exception as exc:
         log(f"WARNING: Gemini API call with cache failed: {exc}; retrying without cache")
+        prompt = INLINE_PROMPT_TEMPLATE.format(diff=diff)
         return run_review_direct(client, model, prompt)
 
 
@@ -433,28 +434,31 @@ def main() -> None:
     # strings like "1.5" which would incorrectly classify gemini-1.5-flash as Pro.
     is_pro_model = "pro" in SELECTED_MODEL.lower()
 
-    if USE_CACHE and is_pro_model and REPO:
-        display_name = f"cache-{repo_slug(REPO)}"
+    try:
+        if USE_CACHE and is_pro_model and REPO:
+            display_name = f"cache-{repo_slug(REPO)}"
 
-        # Try to reuse an existing valid cache
-        existing = find_existing_cache(client, display_name)
+            # Try to reuse an existing valid cache
+            existing = find_existing_cache(client, display_name)
 
-        if existing:
-            findings = run_review_with_cache(client, SELECTED_MODEL, existing.name, diff)
-        else:
-            # Build corpus and try to create a new cache
-            log("Building repo corpus for context cache...")
-            corpus = build_cache_corpus()
-            cache = create_cache(client, SELECTED_MODEL, corpus, display_name)
-
-            if cache:
-                findings = run_review_with_cache(client, SELECTED_MODEL, cache.name, diff)
+            if existing:
+                findings = run_review_with_cache(client, SELECTED_MODEL, existing.name, diff)
             else:
-                # Cache unavailable — fall back to direct call
-                findings = run_review_direct(client, SELECTED_MODEL, prompt)
-    else:
-        # Flash model or caching disabled: direct call
-        findings = run_review_direct(client, SELECTED_MODEL, prompt)
+                # Build corpus and try to create a new cache
+                log("Building repo corpus for context cache...")
+                corpus = build_cache_corpus()
+                cache = create_cache(client, SELECTED_MODEL, corpus, display_name)
+
+                if cache:
+                    findings = run_review_with_cache(client, SELECTED_MODEL, cache.name, diff)
+                else:
+                    # Cache unavailable — fall back to direct call
+                    findings = run_review_direct(client, SELECTED_MODEL, prompt)
+        else:
+            # Flash model or caching disabled: direct call
+            findings = run_review_direct(client, SELECTED_MODEL, prompt)
+    except (ValueError, Exception) as exc:
+        die(f"Gemini review failed: {exc}")
 
     write_output(findings)
 

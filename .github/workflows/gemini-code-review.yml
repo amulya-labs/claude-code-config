@@ -232,11 +232,7 @@ jobs:
             SELECTED_MODEL="${SELECTED_MODEL}" \
             USE_CACHE="${USE_CACHE}" \
             OUTPUT_FILE="/tmp/inline-comments.json" \
-            python3 .github/workflows/scripts/gemini_review.py || true
-            # Fall back to empty array if the script failed to write output
-            if [ ! -f /tmp/inline-comments.json ]; then
-              echo "[]" > /tmp/inline-comments.json
-            fi
+            python3 .github/workflows/scripts/gemini_review.py
           fi
 
           COUNT=$(jq 'length' /tmp/inline-comments.json)
@@ -593,12 +589,7 @@ jobs:
               SELECTED_MODEL="${SELECTED_MODEL}" \
               USE_CACHE="0" \
               OUTPUT_FILE="/tmp/inline-comments.json" \
-              python3 /tmp/gemini_review.py || \
-                echo "WARNING: gemini_review.py exited non-zero (exit $?); inline review may be incomplete." >&2
-              # Fall back to empty array if the script failed to write output
-              if [ ! -f /tmp/inline-comments.json ]; then
-                echo "[]" > /tmp/inline-comments.json
-              fi
+              python3 /tmp/gemini_review.py
             fi
           fi
 
