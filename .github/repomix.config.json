@@ -99,7 +99,21 @@
       ".cursor/",
       ".copilot/",
 
-      ".docker/"
+      ".docker/",
+
+      "data/",
+      "artifacts/",
+      "backtest_results/",
+      "mlruns/",
+      "mlartifacts/",
+      ".mlflow/",
+      "mlflow.db",
+      "alembic/versions/",
+      "config.toml",
+      "*.env.generated",
+      "checksums.txt",
+      "CONTRIBUTING.md",
+      "Makefile"
     ]
   }
 }
