@@ -4,7 +4,7 @@
 name: Gemini Code Review
 
 env:
-  WORKFLOW_VERSION: "2026.03.09"
+  WORKFLOW_VERSION: ${{ github.sha }}
 
 on:
   issue_comment:
@@ -147,11 +147,11 @@ jobs:
                   sleep "$delay"; delay=$((delay * 2)) ;;
                 *)
                   echo "ERROR: Gemini API HTTP $http_code (non-retryable)" >&2
-                  cat /tmp/gemini-resp.json; return 1 ;;
+                  cat /tmp/gemini-resp.json >&2; return 1 ;;
               esac
             done
             echo "ERROR: Gemini API failed after 3 attempts (last HTTP $http_code)" >&2
-            cat /tmp/gemini-resp.json
+            cat /tmp/gemini-resp.json >&2
             return 1
           }
 
@@ -226,7 +226,7 @@ jobs:
 
           FLASH_RESPONSE=$(gemini_api_call \
             "https://generativelanguage.googleapis.com/v1beta/models/${FLASH_MODEL}:generateContent?key=${GEMINI_API_KEY}" \
-            "/tmp/gemini-flash-payload.json")
+            "/tmp/gemini-flash-payload.json") || true
 
           SUMMARY_TEXT=$(echo "$FLASH_RESPONSE" | jq -r '.candidates[0].content.parts[0].text // empty' 2>/dev/null)
           if [ -z "$SUMMARY_TEXT" ]; then
@@ -271,7 +271,7 @@ jobs:
           {
             echo "## Gemini Code Review"
             echo ""
-            echo "_Automated review by [Gemini](https://gemini.google.com/) via [ai-dev-foundry](https://github.com/amulya-labs/ai-dev-foundry) (v${WORKFLOW_VERSION}). Re-trigger with \`$RETRIGGER\`._"
+            echo "_Automated review by [Gemini](https://gemini.google.com/) via [ai-dev-foundry](https://github.com/amulya-labs/ai-dev-foundry) (${WORKFLOW_VERSION:0:7}). Re-trigger with \`$RETRIGGER\`._"
             echo ""
             echo "$SUMMARY_TEXT"
             echo ""
@@ -518,11 +518,11 @@ jobs:
                   sleep "$delay"; delay=$((delay * 2)) ;;
                 *)
                   echo "ERROR: Gemini API HTTP $http_code (non-retryable)" >&2
-                  cat /tmp/gemini-resp.json; return 1 ;;
+                  cat /tmp/gemini-resp.json >&2; return 1 ;;
               esac
             done
             echo "ERROR: Gemini API failed after 3 attempts (last HTTP $http_code)" >&2
-            cat /tmp/gemini-resp.json
+            cat /tmp/gemini-resp.json >&2
             return 1
           }
 
@@ -603,7 +603,7 @@ jobs:
 
           FLASH_RESPONSE=$(gemini_api_call \
             "https://generativelanguage.googleapis.com/v1beta/models/${FLASH_MODEL}:generateContent?key=${GEMINI_API_KEY}" \
-            "/tmp/gemini-flash-payload.json")
+            "/tmp/gemini-flash-payload.json") || true
 
           SUMMARY_TEXT=$(echo "$FLASH_RESPONSE" | jq -r '.candidates[0].content.parts[0].text // empty' 2>/dev/null)
           if [ -z "$SUMMARY_TEXT" ]; then
@@ -662,7 +662,7 @@ jobs:
           {
             echo "## Gemini Code Review"
             echo ""
-            echo "_Automated review by [Gemini](https://gemini.google.com/) via [ai-dev-foundry](https://github.com/amulya-labs/ai-dev-foundry) (v${WORKFLOW_VERSION}). Re-trigger with \`$RETRIGGER\`._"
+            echo "_Automated review by [Gemini](https://gemini.google.com/) via [ai-dev-foundry](https://github.com/amulya-labs/ai-dev-foundry) (${WORKFLOW_VERSION:0:7}). Re-trigger with \`$RETRIGGER\`._"
             echo ""
             echo "$SUMMARY_TEXT"
             echo ""
