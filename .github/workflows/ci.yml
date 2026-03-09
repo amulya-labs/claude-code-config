@@ -204,7 +204,7 @@ jobs:
 
           echo ""
           echo "=== Checking Python scripts ==="
-          for script in .claude/hooks/*.py; do
+          for script in .claude/hooks/*.py .github/workflows/scripts/*.py; do
             if [ -f "$script" ]; then
               echo -n "Checking $script... "
               if ! grep -q "Source:.*github.com/amulya-labs/ai-dev-foundry" "$script"; then

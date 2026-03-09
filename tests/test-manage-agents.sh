@@ -55,6 +55,12 @@ for f in "${EXPECTED_WORKFLOWS[@]}"; do
     fi
 done
 
+if [[ -f "$REPO_ROOT/.github/workflows/scripts/gemini_review.py" ]]; then
+    assert ".github/workflows/scripts/gemini_review.py exists" "pass"
+else
+    assert ".github/workflows/scripts/gemini_review.py exists" "fail" "File not found"
+fi
+
 # gha-workflow-templates/ should no longer exist
 if [[ ! -d "$REPO_ROOT/gha-workflow-templates" ]]; then
     assert "gha-workflow-templates/ directory removed" "pass"
@@ -252,6 +258,20 @@ if grep -q 'GEMINI_API_KEY' "$MANAGE_SCRIPT"; then
 else
     assert "Script mentions GEMINI_API_KEY secret" "fail" \
         "Expected GEMINI_API_KEY hint for users in script"
+fi
+
+if grep -q 'PROVIDER_GEMINI_WORKFLOW_SCRIPTS=' "$MANAGE_SCRIPT"; then
+    assert "PROVIDER_GEMINI_WORKFLOW_SCRIPTS is defined" "pass"
+else
+    assert "PROVIDER_GEMINI_WORKFLOW_SCRIPTS is defined" "fail" \
+        "Expected PROVIDER_GEMINI_WORKFLOW_SCRIPTS= in script (gemini_review.py)"
+fi
+
+if grep -q 'gemini_review.py' "$MANAGE_SCRIPT"; then
+    assert "Script references gemini_review.py" "pass"
+else
+    assert "Script references gemini_review.py" "fail" \
+        "Expected gemini_review.py download in manage-ai-configs.sh"
 fi
 
 echo

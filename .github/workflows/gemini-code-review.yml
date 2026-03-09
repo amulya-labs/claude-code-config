@@ -232,7 +232,7 @@ jobs:
             SELECTED_MODEL="${SELECTED_MODEL}" \
             USE_CACHE="${USE_CACHE}" \
             OUTPUT_FILE="/tmp/inline-comments.json" \
-            python3 scripts/gemini_review.py || true
+            python3 .github/workflows/scripts/gemini_review.py || true
             # Fall back to empty array if the script failed to write output
             if [ ! -f /tmp/inline-comments.json ]; then
               echo "[]" > /tmp/inline-comments.json
@@ -581,7 +581,7 @@ jobs:
             if ! curl -fsSL \
               -H "Authorization: Bearer ${GH_TOKEN}" \
               -H "Accept: application/vnd.github.raw+json" \
-              "https://api.github.com/repos/${REPO}/contents/scripts/gemini_review.py" \
+              "https://api.github.com/repos/${REPO}/contents/.github/workflows/scripts/gemini_review.py" \
               -o /tmp/gemini_review.py; then
               echo "WARNING: curl failed to fetch gemini_review.py (exit $?); skipping inline review." >&2
               echo "[]" > /tmp/inline-comments.json

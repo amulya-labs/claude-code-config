@@ -48,6 +48,9 @@ PROVIDER_GEMINI_WORKFLOWS="gemini-code-review.yml"
 PROVIDER_GEMINI_SECRET="GEMINI_API_KEY"
 # shellcheck disable=SC2034
 PROVIDER_GEMINI_LABEL="Gemini"
+# Space-separated list of scripts under .github/workflows/scripts/ to download
+# shellcheck disable=SC2034
+PROVIDER_GEMINI_WORKFLOW_SCRIPTS="gemini_review.py"
 # Gemini has no local config dir yet — leave unset
 
 # Populated by flag parsing; positional agent arg also adds entries here
@@ -170,6 +173,25 @@ download_provider_workflows() {
             warn "  Failed to download $wf"
         fi
     done
+
+    # Also download workflow helper scripts if defined for this provider
+    local scripts_var="PROVIDER_${upper}_WORKFLOW_SCRIPTS"
+    if [[ -v "$scripts_var" ]] && [[ -n "${!scripts_var}" ]]; then
+        local -a script_list
+        read -ra script_list <<< "${!scripts_var}"
+        local scripts_dir=".github/workflows/scripts"
+        mkdir -p "$scripts_dir"
+        info "Fetching ${label} workflow scripts..."
+        for script in "${script_list[@]}"; do
+            local url="$RAW_BASE/.github/workflows/scripts/$script"
+            if curl -fsSL "$url" -o "$scripts_dir/$script" 2>/dev/null; then
+                info "  Downloaded $script"
+            else
+                warn "  Failed to download $script"
+            fi
+        done
+    fi
+
     warn "Requires ${secret} secret in your repo settings"
 }
 
@@ -361,7 +383,8 @@ usage_claude() {
     echo "  (requires CLAUDE_CODE_OAUTH_TOKEN secret in repo)"
     echo ""
     echo "With --gemini or --ai claude,gemini, also downloads:"
-    echo "  .github/workflows/gemini-code-review.yml - Gemini PR review (Flash + Pro)"
+    echo "  .github/workflows/gemini-code-review.yml          - Gemini PR review (Flash + Pro)"
+    echo "  .github/workflows/scripts/gemini_review.py        - Inline review Python helper"
     echo "  (requires GEMINI_API_KEY secret in repo)"
     echo ""
     echo "With --with-gha-workflows, also downloads:"
@@ -376,7 +399,8 @@ usage_gemini() {
     echo "  update    Pull the latest Gemini workflow"
     echo ""
     echo "This downloads:"
-    echo "  .github/workflows/gemini-code-review.yml - Gemini PR review (Flash + Pro)"
+    echo "  .github/workflows/gemini-code-review.yml          - Gemini PR review (Flash + Pro)"
+    echo "  .github/workflows/scripts/gemini_review.py        - Inline review Python helper"
     echo "  (requires GEMINI_API_KEY secret in your repo settings)"
     echo ""
     echo "Options:"
