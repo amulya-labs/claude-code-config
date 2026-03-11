@@ -235,7 +235,14 @@ def extract_response_text(response) -> str:
 
     # Fallback: iterate parts and skip thought parts
     try:
-        parts = response.candidates[0].content.parts
+        content = response.candidates[0].content
+        if content is None:
+            log("WARNING: response.candidates[0].content is None")
+            return ""
+        parts = content.parts
+        if parts is None:
+            log("WARNING: response.candidates[0].content.parts is None")
+            return ""
         text_parts = [p.text for p in parts if not getattr(p, "thought", False) and p.text]
         if text_parts:
             return "\n".join(text_parts)
@@ -245,7 +252,7 @@ def extract_response_text(response) -> str:
             for p in parts
         ]
         log(f"WARNING: No non-thought text parts found. Parts: {part_summary}")
-    except (IndexError, AttributeError) as exc:
+    except (IndexError, AttributeError, TypeError) as exc:
         log(f"WARNING: Could not iterate response parts: {exc}")
 
     return ""
@@ -385,6 +392,9 @@ def run_review_direct(client, model: str, prompt: str) -> list:
 
     response = _call_with_retry(_call, f"generate_content ({model})")
     raw = extract_response_text(response)
+    if not raw.strip():
+        log("WARNING: Model returned no text output (thinking-only response); treating as zero findings")
+        return []
     return parse_json_response(raw)
 
 
@@ -412,6 +422,9 @@ def run_review_with_cache(client, model: str, cache_name: str, diff: str) -> lis
     try:
         response = _call_with_retry(_call, f"generate_content with cache ({model})")
         raw = extract_response_text(response)
+        if not raw.strip():
+            log("WARNING: Model returned no text output (thinking-only response); treating as zero findings")
+            return []
         return parse_json_response(raw)
     except ValueError:
         raise  # parse failures should not be silenced
