@@ -382,6 +382,15 @@ jobs:
             gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "severity:high" 2>/dev/null || true
           fi
 
+          # --- Propagate Phase 2 failure ---
+          # All phases above (summary comment, inline comments, labels) have completed.
+          # Now fail the step so the "Post failure notice" fires and the job shows as failed.
+          PHASE2_STATUS=$(jq -r '.phase2_inline' /tmp/review-status.json)
+          if [[ "$PHASE2_STATUS" == failed:* ]]; then
+            echo "::error::Phase 2 inline review failed ($PHASE2_STATUS). Summary was still posted."
+            exit 1
+          fi
+
       - name: Upload inline comments artifact
         if: always()
         uses: actions/upload-artifact@v4
@@ -774,6 +783,15 @@ jobs:
             gh label create "severity:high" --color "e4e669" --description "High severity finding" \
               --repo "$REPO" 2>/dev/null || true
             gh pr edit "$PR_NUMBER" --repo "$REPO" --add-label "severity:high" 2>/dev/null || true
+          fi
+
+          # --- Propagate Phase 2 failure ---
+          # All phases above (summary comment, inline comments, labels) have completed.
+          # Now fail the step so the "Post failure notice" fires and the job shows as failed.
+          PHASE2_STATUS=$(jq -r '.phase2_inline' /tmp/review-status.json)
+          if [[ "$PHASE2_STATUS" == failed:* ]]; then
+            echo "::error::Phase 2 inline review failed ($PHASE2_STATUS). Summary was still posted."
+            exit 1
           fi
 
       - name: Upload inline comments artifact

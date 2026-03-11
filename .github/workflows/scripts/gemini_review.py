@@ -52,22 +52,6 @@ RETRY_BASE_DELAY_SECONDS = 2  # doubles each attempt: 2s, 4s, 8s
 # HTTP status codes that warrant a retry
 RETRYABLE_EXCEPTION_SUBSTRINGS = ("429", "500", "502", "503", "504", "quota", "rate")
 
-# JSON schema for structured output enforcement
-FINDING_SCHEMA = {
-    "type": "array",
-    "items": {
-        "type": "object",
-        "properties": {
-            "file": {"type": "string"},
-            "line": {"type": "integer"},
-            "severity": {"type": "string", "enum": ["Critical", "High", "Medium", "Low"]},
-            "comment": {"type": "string"},
-            "suggestion": {"type": "string"},
-        },
-        "required": ["file", "line", "severity", "comment", "suggestion"],
-    },
-}
-
 # File extensions / name patterns to skip when building the cache corpus.
 # Covers lock files, build artifacts, compiled assets, AND common secret/credential files.
 SKIP_PATTERNS = re.compile(
@@ -122,7 +106,8 @@ Each object must follow this schema:
 }}
 
 If you find no significant issues, return an empty JSON array: []
-Cap your response at 10 items. Prioritize Critical and High severity findings."""
+Cap your response at 10 items. Prioritize Critical and High severity findings.
+Return ONLY the JSON array, nothing else."""
 
 
 # ---------------------------------------------------------------------------
@@ -238,12 +223,15 @@ def extract_response_text(response) -> str:
 
     Gemini 2.5 models have thinking enabled by default, which means the
     response may contain both thought parts and text parts.  response.text
-    can return None when the response only contains thought parts (edge case).
-    This helper iterates over parts explicitly to collect the actual output.
+    can return None or raise when only thought parts are present.
+    This helper tries the fast path first, then iterates parts explicitly.
     """
     # Fast path: response.text works in most cases
-    if response.text:
-        return response.text
+    try:
+        if response.text:
+            return response.text
+    except Exception as exc:
+        log(f"WARNING: response.text raised {type(exc).__name__}: {exc}")
 
     # Fallback: iterate parts and skip thought parts
     try:
@@ -251,8 +239,14 @@ def extract_response_text(response) -> str:
         text_parts = [p.text for p in parts if not getattr(p, "thought", False) and p.text]
         if text_parts:
             return "\n".join(text_parts)
-    except (IndexError, AttributeError):
-        pass
+        # Log what we got for debugging
+        part_summary = [
+            f"thought={getattr(p, 'thought', '?')}, text={bool(p.text)}"
+            for p in parts
+        ]
+        log(f"WARNING: No non-thought text parts found. Parts: {part_summary}")
+    except (IndexError, AttributeError) as exc:
+        log(f"WARNING: Could not iterate response parts: {exc}")
 
     return ""
 
@@ -386,8 +380,6 @@ def run_review_direct(client, model: str, prompt: str) -> list:
             config=types.GenerateContentConfig(
                 temperature=0.1,
                 max_output_tokens=4096,
-                response_mime_type="application/json",
-                response_json_schema=FINDING_SCHEMA,
             ),
         )
 
@@ -414,8 +406,6 @@ def run_review_with_cache(client, model: str, cache_name: str, diff: str) -> lis
                 temperature=0.1,
                 max_output_tokens=4096,
                 cached_content=cache_name,
-                response_mime_type="application/json",
-                response_json_schema=FINDING_SCHEMA,
             ),
         )
 
