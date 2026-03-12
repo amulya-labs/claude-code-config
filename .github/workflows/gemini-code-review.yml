@@ -5,6 +5,7 @@ name: Gemini Code Review
 
 env:
   WORKFLOW_VERSION: ${{ github.sha }}
+  INLINE_ATTRIBUTION: "\n\n---\n_\U0001f916 [Gemini](https://gemini.google.com/) via [ai-dev-foundry](https://github.com/amulya-labs/ai-dev-foundry)_"
 
 on:
   issue_comment:
@@ -339,7 +340,7 @@ jobs:
 
             # Map each finding to a review comment using line + side instead of position,
             # so comments land on the correct line rather than always at position 1.
-            COMMENTS=$(jq '[.[] | {
+            COMMENTS=$(jq --arg footer "$INLINE_ATTRIBUTION" '[.[] | {
               path: .file,
               line: .line,
               side: "RIGHT",
@@ -347,7 +348,8 @@ jobs:
                 "**[\(.severity)]** \(.comment)" +
                 (if (.suggestion != null and .suggestion != "") then
                   "\n\n```suggestion\n\(.suggestion)\n```"
-                else "" end)
+                else "" end) +
+                $footer
               )
             }]' /tmp/inline-comments.json)
 
@@ -742,7 +744,7 @@ jobs:
 
             # Map each finding to a review comment using line + side instead of position,
             # so comments land on the correct line rather than always at position 1.
-            COMMENTS=$(jq '[.[] | {
+            COMMENTS=$(jq --arg footer "$INLINE_ATTRIBUTION" '[.[] | {
               path: .file,
               line: .line,
               side: "RIGHT",
@@ -750,7 +752,8 @@ jobs:
                 "**[\(.severity)]** \(.comment)" +
                 (if (.suggestion != null and .suggestion != "") then
                   "\n\n```suggestion\n\(.suggestion)\n```"
-                else "" end)
+                else "" end) +
+                $footer
               )
             }]' /tmp/inline-comments.json)
 
