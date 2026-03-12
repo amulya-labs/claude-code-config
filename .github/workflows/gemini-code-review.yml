@@ -347,7 +347,8 @@ jobs:
                 "**[\(.severity)]** \(.comment)" +
                 (if (.suggestion != null and .suggestion != "") then
                   "\n\n```suggestion\n\(.suggestion)\n```"
-                else "" end)
+                else "" end) +
+                "\n\n---\n_🤖 [Gemini](https://gemini.google.com/) via [ai-dev-foundry](https://github.com/amulya-labs/ai-dev-foundry)_"
               )
             }]' /tmp/inline-comments.json)
 
@@ -750,7 +751,8 @@ jobs:
                 "**[\(.severity)]** \(.comment)" +
                 (if (.suggestion != null and .suggestion != "") then
                   "\n\n```suggestion\n\(.suggestion)\n```"
-                else "" end)
+                else "" end) +
+                "\n\n---\n_🤖 [Gemini](https://gemini.google.com/) via [ai-dev-foundry](https://github.com/amulya-labs/ai-dev-foundry)_"
               )
             }]' /tmp/inline-comments.json)
 
