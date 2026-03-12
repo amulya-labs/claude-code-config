@@ -260,25 +260,12 @@ jobs:
               print(f"Syncing source: {name}")
               print(f"{'='*60}")
 
-              # Delete ALL existing sources with this title (handles duplicates)
               old_source_ids = source_map.get(name, [])
 
-              if old_source_ids:
-                  if len(old_source_ids) > 1:
-                      print(f"  Found {len(old_source_ids)} duplicates — deleting all")
-                  for old_id in old_source_ids:
-                      print(f"  Deleting old source {old_id}...")
-                      del_result = subprocess.run(
-                          ["nlm", "source", "delete", old_id, "--confirm"],
-                          capture_output=True, text=True
-                      )
-                      if del_result.returncode != 0:
-                          print(f"::error::Failed to delete old source {old_id} for {name}")
-                          print(del_result.stderr)
-                          sys.exit(1)
-              else:
-                  print(f"  No existing source found for '{name}' (first upload or title mismatch)")
+              if not old_source_ids:
+                  print(f"  No existing source found for '{name}' (first upload)")
 
+              # Step 1: Upload the NEW source first — notebook always has content
               print(f"  Uploading {filepath} with title '{name}'...")
               result = subprocess.run(
                   ["nlm", "source", "add", notebook_id, "--file", filepath, "--title", name, "--wait"],
@@ -288,11 +275,26 @@ jobs:
                   print(f"::error::Failed to upload {name}")
                   print(result.stderr)
                   if old_source_ids:
-                      print(f"::error::Old sources for '{name}' were deleted but upload failed. "
-                            f"Source will be re-created on the next successful run.")
+                      print(f"  Keeping {len(old_source_ids)} old source(s) for '{name}' intact (upload failed)")
                   failed = True
-              else:
-                  print(f"  ✓ {name} uploaded successfully")
+                  continue  # Skip deletion — old sources are still the best content
+
+              print(f"  ✓ {name} uploaded successfully")
+
+              # Step 2: Delete old sources only after successful upload
+              if old_source_ids:
+                  if len(old_source_ids) > 1:
+                      print(f"  Cleaning up {len(old_source_ids)} old source(s)...")
+                  for old_id in old_source_ids:
+                      print(f"  Deleting old source {old_id}...")
+                      del_result = subprocess.run(
+                          ["nlm", "source", "delete", old_id, "--confirm"],
+                          capture_output=True, text=True
+                      )
+                      if del_result.returncode != 0:
+                          print(f"::warning::Failed to delete old source {old_id} for '{name}' — "
+                                f"duplicate will be cleaned up on next run")
+                          print(del_result.stderr)
 
           if failed:
               print("\n::error::One or more sources failed to upload.")
