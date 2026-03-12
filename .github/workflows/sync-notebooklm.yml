@@ -219,7 +219,7 @@ jobs:
           fi
 
           python3 << 'PYEOF'
-          import json, subprocess, sys, os, hashlib
+          import json, subprocess, sys, os, hashlib, tempfile
 
           with open("nlm-sources/manifest.json") as f:
               manifest = json.load(f)
@@ -280,22 +280,43 @@ jobs:
               else:
                   # Content diff: fetch remote content and compare hashes
                   compare_id = old_source_ids[0]
-                  remote_path = f"/tmp/nlm-remote-{name}.txt"
-                  content_result = subprocess.run(
-                      ["nlm", "source", "content", compare_id, "--output", remote_path],
-                      capture_output=True, text=True
-                  )
-                  if content_result.returncode == 0:
-                      remote_h = file_hash(remote_path)
-                      local_h = file_hash(filepath)
-                      if remote_h == local_h:
-                          print(f"  Content unchanged ({local_h[:12]}...), skipping")
-                          skipped += 1
-                          continue
+                  tmp_fd, remote_path = tempfile.mkstemp(prefix=f"nlm-remote-{compare_id}-", suffix=".txt")
+                  os.close(tmp_fd)
+                  try:
+                      content_result = subprocess.run(
+                          ["nlm", "source", "content", compare_id, "--output", remote_path],
+                          capture_output=True, text=True
+                      )
+                      if content_result.returncode == 0:
+                          remote_h = file_hash(remote_path)
+                          local_h = file_hash(filepath)
+                          if remote_h == local_h:
+                              print(f"  Content unchanged ({local_h[:12]}...), skipping")
+                              skipped += 1
+                              # Still clean up duplicate sources even when content is unchanged
+                              if len(old_source_ids) > 1:
+                                  print(f"  Cleaning up {len(old_source_ids) - 1} duplicate source(s)...")
+                                  for old_id in old_source_ids[1:]:
+                                      print(f"  Deleting duplicate source {old_id}...")
+                                      del_result = subprocess.run(
+                                          ["nlm", "source", "delete", old_id, "--confirm"],
+                                          capture_output=True, text=True
+                                      )
+                                      if del_result.returncode != 0:
+                                          print(f"::warning::Failed to delete duplicate source {old_id} for '{name}'")
+                                          print(del_result.stderr)
+                              continue
+                          else:
+                              print(f"  Content changed (remote={remote_h[:12]}... local={local_h[:12]}...)")
                       else:
-                          print(f"  Content changed (remote={remote_h[:12]}... local={local_h[:12]}...)")
-                  else:
-                      print(f"  Could not fetch remote content (rc={content_result.returncode}), will re-upload")
+                          print(f"  Could not fetch remote content (rc={content_result.returncode}), will re-upload")
+                          if content_result.stderr:
+                              print(f"  stderr: {content_result.stderr.strip()}")
+                  finally:
+                      try:
+                          os.remove(remote_path)
+                      except OSError:
+                          pass
 
               # Step 1: Upload the NEW source first — notebook always has content
               print(f"  Uploading {filepath} with title '{name}'...")
