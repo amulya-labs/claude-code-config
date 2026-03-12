@@ -227,17 +227,36 @@ jobs:
           notebook_id = os.environ["NLM_NOTEBOOK_ID"]
           failed = False
 
-          # Fetch existing sources once (not per-entry) to build a name→id map
-          source_map = {}
+          # Fetch existing sources once (not per-entry) to build a title→[ids] map
+          from collections import defaultdict
+          source_map = defaultdict(list)
           list_result = subprocess.run(
-              ["nlm", "source", "list", notebook_id, "--quiet", "--title"],
+              ["nlm", "source", "list", notebook_id, "--json"],
               capture_output=True, text=True
           )
-          if list_result.returncode == 0:
-              for line in list_result.stdout.strip().split("\n"):
-                  parts = line.split(None, 1)
-                  if len(parts) == 2:
-                      source_map[parts[1].strip()] = parts[0]
+          if list_result.returncode != 0:
+              print(f"::error::nlm source list failed (rc={list_result.returncode})")
+              print(list_result.stderr)
+              sys.exit(1)
+
+          try:
+              sources_json = json.loads(list_result.stdout)
+              if not isinstance(sources_json, list):
+                  print(f"::error::Expected JSON array from nlm source list, got {type(sources_json).__name__}")
+                  print(f"Raw output: {list_result.stdout[:500]}")
+                  sys.exit(1)
+              for src in sources_json:
+                  title = src.get("title", "").strip()
+                  src_id = src.get("id", "")
+                  if title and src_id:
+                      source_map[title].append(src_id)
+          except (json.JSONDecodeError, TypeError) as e:
+              print(f"::error::Failed to parse nlm source list JSON: {e}")
+              print(f"Raw output: {list_result.stdout[:500]}")
+              sys.exit(1)
+
+          total_existing = sum(len(ids) for ids in source_map.values())
+          print(f"Found {total_existing} existing source(s) across {len(source_map)} title(s)")
 
           for entry in manifest:
               name = entry["name"]
@@ -246,34 +265,41 @@ jobs:
               print(f"Syncing source: {name}")
               print(f"{'='*60}")
 
-              # Exact match lookup (not substring)
-              old_source_id = source_map.get(name)
+              old_source_ids = source_map.get(name, [])
 
-              if old_source_id:
-                  print(f"  Deleting old source {old_source_id}...")
-                  del_result = subprocess.run(
-                      ["nlm", "source", "delete", old_source_id, "--confirm"],
-                      capture_output=True, text=True
-                  )
-                  if del_result.returncode != 0:
-                      print(f"::warning::Failed to delete old source {old_source_id} for {name}: {del_result.stderr.strip()}")
-                      # Continue to upload anyway — may create a duplicate, but better
-                      # than skipping the upload entirely
+              if not old_source_ids:
+                  print(f"  No existing source found for '{name}' (first upload)")
 
-              print(f"  Uploading {filepath}...")
+              # Step 1: Upload the NEW source first — notebook always has content
+              print(f"  Uploading {filepath} with title '{name}'...")
               result = subprocess.run(
-                  ["nlm", "source", "add", notebook_id, "--file", filepath, "--wait"],
+                  ["nlm", "source", "add", notebook_id, "--file", filepath, "--title", name, "--wait"],
                   capture_output=True, text=True
               )
               if result.returncode != 0:
                   print(f"::error::Failed to upload {name}")
                   print(result.stderr)
-                  if old_source_id:
-                      print(f"::warning::Old source {old_source_id} ({name}) was deleted but upload failed. "
-                            f"Source will be re-created on the next successful run.")
+                  if old_source_ids:
+                      print(f"  Keeping {len(old_source_ids)} old source(s) for '{name}' intact (upload failed)")
                   failed = True
-              else:
-                  print(f"  ✓ {name} uploaded successfully")
+                  continue  # Skip deletion — old sources are still the best content
+
+              print(f"  ✓ {name} uploaded successfully")
+
+              # Step 2: Delete old sources only after successful upload
+              if old_source_ids:
+                  if len(old_source_ids) > 1:
+                      print(f"  Cleaning up {len(old_source_ids)} old source(s)...")
+                  for old_id in old_source_ids:
+                      print(f"  Deleting old source {old_id}...")
+                      del_result = subprocess.run(
+                          ["nlm", "source", "delete", old_id, "--confirm"],
+                          capture_output=True, text=True
+                      )
+                      if del_result.returncode != 0:
+                          print(f"::warning::Failed to delete old source {old_id} for '{name}' — "
+                                f"duplicate will be cleaned up on next run")
+                          print(del_result.stderr)
 
           if failed:
               print("\n::error::One or more sources failed to upload.")
