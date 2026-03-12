@@ -228,6 +228,13 @@ jobs:
           failed = False
           skipped = 0
 
+          # Probe: verify nlm source content subcommand is available
+          content_diff_enabled = True
+          probe = subprocess.run(["nlm", "source", "content", "--help"], capture_output=True, text=True)
+          if probe.returncode != 0:
+              print("::warning::nlm source content subcommand unavailable — content diffing disabled, all sources will re-upload")
+              content_diff_enabled = False
+
           def file_hash(path):
               h = hashlib.sha256()
               with open(path, "rb") as f:
@@ -253,8 +260,8 @@ jobs:
                   print(f"::error::Expected JSON array from nlm source list, got {type(sources_json).__name__}")
                   print(f"Raw output: {list_result.stdout[:500]}")
                   sys.exit(1)
-              # Diagnostic: show raw JSON structure from first source
-              if sources_json:
+              # Diagnostic: show raw JSON structure from first source (opt-in)
+              if sources_json and os.environ.get("NLM_DEBUG"):
                   print(f"  Sample source keys: {list(sources_json[0].keys())}")
                   print(f"  Sample source: {json.dumps(sources_json[0], indent=2)[:500]}")
 
@@ -277,8 +284,9 @@ jobs:
 
           total_existing = sum(len(ids) for ids in source_map.values())
           print(f"Found {total_existing} existing source(s) across {len(source_map)} title(s)")
-          for title, ids in source_map.items():
-              print(f"  '{title}' → {len(ids)} source(s)")
+          if os.environ.get("NLM_DEBUG"):
+              for title, ids in source_map.items():
+                  print(f"  '{title}' → {len(ids)} source(s)")
 
           for entry in manifest:
               name = entry["name"]
@@ -291,6 +299,8 @@ jobs:
 
               if not old_source_ids:
                   print(f"  No existing source found for '{name}' (first upload)")
+              elif not content_diff_enabled:
+                  print(f"  Content diffing disabled, will re-upload '{name}'")
               else:
                   # Content diff: fetch remote content and compare hashes
                   compare_id = old_source_ids[0]
@@ -299,7 +309,7 @@ jobs:
                   try:
                       content_result = subprocess.run(
                           ["nlm", "source", "content", compare_id, "--output", remote_path],
-                          capture_output=True, text=True
+                          capture_output=True, text=True, timeout=30
                       )
                       if content_result.returncode == 0:
                           remote_h = file_hash(remote_path)
