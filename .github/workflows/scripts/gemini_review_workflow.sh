@@ -113,15 +113,24 @@ FLASH_MODEL="gemini-2.5-flash"
 # Post review-started notice (non-fatal)
 # ---------------------------------------------------------------------------
 
-if [[ "${COMMENT_BODY}" == /gemini-light-review* ]]; then
-  REVIEW_LABEL="Light"
-else
+if [[ "${COMMENT_BODY}" == /gemini-deep-review* ]]; then
   REVIEW_LABEL="Deep"
+  TRIGGER_CMD="/gemini-deep-review"
+elif [[ "${COMMENT_BODY}" == /gemini-light-review* ]]; then
+  REVIEW_LABEL="Light"
+  TRIGGER_CMD="/gemini-light-review"
+else
+  REVIEW_LABEL="Light"
+  TRIGGER_CMD="/gemini-review"
 fi
+
+# shellcheck disable=SC2016  # %s placeholders are for printf, not shell expansion
+printf '💎 **Gemini %s Review** in progress… [View run](%s)\n> Triggered by `%s`.' \
+  "$REVIEW_LABEL" "$RUN_URL" "$TRIGGER_CMD" > /tmp/review-started.md
 
 gh pr comment "$PR_NUMBER" \
   --repo "$REPO" \
-  --body "> 💎 **Gemini $REVIEW_LABEL Review** in progress… [View run]($RUN_URL)" \
+  --body-file /tmp/review-started.md \
   2>/dev/null || echo "WARNING: Failed to post review-started notice" >&2
 
 # ---------------------------------------------------------------------------
@@ -277,8 +286,8 @@ COUNT=$(jq 'length' /tmp/inline-comments.json)
 # Build summary comment
 # ---------------------------------------------------------------------------
 
-if [ "${MODE}" = "light" ]; then
-  RETRIGGER="/gemini-light-review"
+if [ "${MODE}" = "deep" ]; then
+  RETRIGGER="/gemini-deep-review"
 else
   RETRIGGER="/gemini-review"
 fi
@@ -322,7 +331,7 @@ fi
     echo "_Inline comments are posted directly on the diff._"
   elif [ "${MODE}" = "light" ]; then
     echo ""
-    echo "_No significant issues found. Run \`/gemini-review\` for a deeper analysis._"
+    echo "_No significant issues found. Run \`/gemini-deep-review\` for a deeper analysis._"
   elif [[ "$PHASE2" == skipped:* ]]; then
     echo "---"
     echo ""
@@ -361,21 +370,29 @@ EXISTING_ID=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
   2>/dev/null || true)
 
 if [ -n "$EXISTING_ID" ]; then
+  SUMMARY_COMMENT_ID="$EXISTING_ID"
   jq -n --rawfile body /tmp/review-body.md '{"body": $body}' \
   | gh api \
     --method PATCH \
     -H "Accept: application/vnd.github+json" \
-    "/repos/$REPO/issues/comments/$EXISTING_ID" \
+    "/repos/$REPO/issues/comments/$SUMMARY_COMMENT_ID" \
     --input -
 else
-  gh pr comment "$PR_NUMBER" \
-    --repo "$REPO" \
-    --body-file /tmp/review-body.md
+  SUMMARY_COMMENT_ID=$(gh api \
+    --method POST \
+    -H "Accept: application/vnd.github+json" \
+    "/repos/$REPO/issues/$PR_NUMBER/comments" \
+    -f body="$(cat /tmp/review-body.md)" \
+    --jq '.id' 2>/dev/null) || true
 fi
 
 # ---------------------------------------------------------------------------
 # Post inline review comments (if any)
 # ---------------------------------------------------------------------------
+
+INLINE_POSTED=0
+INLINE_FAILED=0
+echo '[]' > /tmp/inline-failures.json
 
 if [ "$COUNT" -gt 0 ]; then
   echo "Posting $COUNT inline comment(s) via GitHub Reviews API..."
@@ -393,7 +410,9 @@ if [ "$COUNT" -gt 0 ]; then
     )
   }]' /tmp/inline-comments.json)
 
-  if jq -n \
+  # Tier 1: try batch POST (happy path — single API call)
+  BATCH_OK=true
+  if ! jq -n \
     --arg commit_id "$HEAD_SHA" \
     --arg body "" \
     --arg event "COMMENT" \
@@ -403,11 +422,101 @@ if [ "$COUNT" -gt 0 ]; then
     --method POST \
     -H "Accept: application/vnd.github+json" \
     "/repos/$REPO/pulls/$PR_NUMBER/reviews" \
-    --input -; then
+    --input - 2>/tmp/inline-batch-err.txt; then
+    BATCH_OK=false
+    echo "WARNING: Batch inline POST failed; falling back to individual comments..." >&2
+    cat /tmp/inline-batch-err.txt >&2
+  fi
+
+  if [ "$BATCH_OK" = true ]; then
+    INLINE_POSTED=$COUNT
     update_status phase2_inline "success"
   else
-    echo "WARNING: Failed to post inline review comments (invalid line numbers or GitHub API error); findings are in the summary table above." >&2
-    update_status phase2_inline "failed:inline_post"
+    # Tier 2: post comments individually via single-comment endpoint
+    TOTAL=$(echo "$COMMENTS" | jq 'length')
+    for i in $(seq 0 $((TOTAL - 1))); do
+      COMMENT_JSON=$(echo "$COMMENTS" | jq --arg sha "$HEAD_SHA" --argjson idx "$i" '{
+        commit_id: $sha,
+        path: .[$idx].path,
+        line: .[$idx].line,
+        side: .[$idx].side,
+        body: .[$idx].body
+      }')
+
+      set +e
+      ERR=$(echo "$COMMENT_JSON" | gh api \
+        --method POST \
+        -H "Accept: application/vnd.github+json" \
+        "/repos/$REPO/pulls/$PR_NUMBER/comments" \
+        --input - 2>&1 >/dev/null)
+      RC=$?
+      set -e
+
+      if [ "$RC" -eq 0 ]; then
+        INLINE_POSTED=$((INLINE_POSTED + 1))
+      else
+        INLINE_FAILED=$((INLINE_FAILED + 1))
+        FILE=$(echo "$COMMENTS" | jq -r ".[$i].path")
+        LINE=$(echo "$COMMENTS" | jq -r ".[$i].line")
+        echo "WARNING: Failed to post comment on $FILE:$LINE — $ERR" >&2
+        # Collect failed comment details for the summary appendix
+        jq -r ".[$i]" /tmp/inline-comments.json \
+          | jq '{file: .file, line: .line, severity: .severity, comment: .comment}' \
+          >> /tmp/inline-failure-item.json
+      fi
+
+      # 1-second sleep between POSTs to avoid secondary rate limits
+      if [ "$i" -lt $((TOTAL - 1)) ]; then
+        sleep 1
+      fi
+    done
+
+    # Assemble failures array
+    if [ "$INLINE_FAILED" -gt 0 ] && [ -f /tmp/inline-failure-item.json ]; then
+      jq -s '.' /tmp/inline-failure-item.json > /tmp/inline-failures.json
+    fi
+
+    if [ "$INLINE_FAILED" -eq 0 ]; then
+      update_status phase2_inline "success"
+    elif [ "$INLINE_POSTED" -gt 0 ]; then
+      update_status phase2_inline "partial:${INLINE_POSTED}_of_${COUNT}_posted"
+    else
+      update_status phase2_inline "failed:inline_post"
+    fi
+  fi
+
+  # Tier 3: PATCH summary comment with failure details if any comments failed
+  if [ "$INLINE_FAILED" -gt 0 ] && [ -n "${SUMMARY_COMMENT_ID:-}" ]; then
+    {
+      echo ""
+      echo "---"
+      echo ""
+      echo "> **Note:** $INLINE_FAILED of $COUNT inline comment(s) could not be posted (invalid line references). Findings are in the table above."
+      echo ""
+      echo "<details>"
+      echo "<summary>Failed inline comments</summary>"
+      echo ""
+      jq -r '.[] | "- **[\(.severity)]** `\(.file):\(.line)` — \(.comment | gsub("\n"; " ") | .[0:200])"' \
+        /tmp/inline-failures.json
+      echo ""
+      echo "</details>"
+    } > /tmp/inline-failure-appendix.md
+
+    # Read current summary, append failure details, PATCH
+    CURRENT_BODY=$(gh api "/repos/$REPO/issues/comments/$SUMMARY_COMMENT_ID" --jq '.body' 2>/dev/null || true)
+    if [ -n "$CURRENT_BODY" ]; then
+      {
+        echo "$CURRENT_BODY"
+        cat /tmp/inline-failure-appendix.md
+      } > /tmp/review-body-patched.md
+
+      jq -n --rawfile body /tmp/review-body-patched.md '{"body": $body}' \
+      | gh api \
+        --method PATCH \
+        -H "Accept: application/vnd.github+json" \
+        "/repos/$REPO/issues/comments/$SUMMARY_COMMENT_ID" \
+        --input - >/dev/null 2>&1 || echo "WARNING: Failed to append failure details to summary comment" >&2
+    fi
   fi
 else
   # No findings to post; Phase 2 script succeeded if we reached here
@@ -457,6 +566,8 @@ jq -n \
   --argjson p2_latency "$PHASE2_LATENCY" \
   --argjson phase2_tokens "$PHASE2_METRICS" \
   --argjson finding_count "$COUNT" \
+  --argjson inline_posted "$INLINE_POSTED" \
+  --argjson inline_failed "$INLINE_FAILED" \
   --argjson critical "$CRITICAL" \
   --argjson high "$HIGH" \
   --argjson medium "$MEDIUM" \
@@ -468,6 +579,8 @@ jq -n \
     phase2_latency_seconds: $p2_latency,
     phase2_tokens: $phase2_tokens,
     finding_count: $finding_count,
+    inline_comments_posted: $inline_posted,
+    inline_comments_failed: $inline_failed,
     severity_breakdown: {Critical: $critical, High: $high, Medium: $medium, Low: $low}
   }' > /tmp/review-metrics.json
 
@@ -481,4 +594,6 @@ PHASE2_STATUS=$(jq -r '.phase2_inline' /tmp/review-status.json)
 if [[ "$PHASE2_STATUS" == failed:* ]]; then
   echo "::error::Phase 2 inline review failed ($PHASE2_STATUS). Summary was still posted."
   exit 1
+elif [[ "$PHASE2_STATUS" == partial:* ]]; then
+  echo "::warning::Phase 2 inline review partially succeeded ($PHASE2_STATUS). Some comments could not be posted."
 fi

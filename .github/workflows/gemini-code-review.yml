@@ -74,14 +74,14 @@ jobs:
         env:
           COMMENT_BODY: ${{ github.event.comment.body }}
         run: |
-          if [[ "$COMMENT_BODY" == /gemini-light-review* ]]; then
-            echo "model=gemini-2.5-flash" >> "$GITHUB_OUTPUT"
-            echo "mode=light" >> "$GITHUB_OUTPUT"
-            echo "use_cache=0" >> "$GITHUB_OUTPUT"
-          else
+          if [[ "$COMMENT_BODY" == /gemini-deep-review* ]]; then
             echo "model=gemini-2.5-pro" >> "$GITHUB_OUTPUT"
             echo "mode=deep" >> "$GITHUB_OUTPUT"
             echo "use_cache=1" >> "$GITHUB_OUTPUT"
+          else
+            echo "model=gemini-2.5-flash" >> "$GITHUB_OUTPUT"
+            echo "mode=light" >> "$GITHUB_OUTPUT"
+            echo "use_cache=0" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Run Gemini Code Review
@@ -192,12 +192,12 @@ jobs:
         env:
           COMMENT_BODY: ${{ github.event.comment.body }}
         run: |
-          if [[ "$COMMENT_BODY" == /gemini-light-review* ]]; then
-            echo "model=gemini-2.5-flash" >> "$GITHUB_OUTPUT"
-            echo "mode=light" >> "$GITHUB_OUTPUT"
-          else
+          if [[ "$COMMENT_BODY" == /gemini-deep-review* ]]; then
             echo "model=gemini-2.5-pro" >> "$GITHUB_OUTPUT"
             echo "mode=deep" >> "$GITHUB_OUTPUT"
+          else
+            echo "model=gemini-2.5-flash" >> "$GITHUB_OUTPUT"
+            echo "mode=light" >> "$GITHUB_OUTPUT"
           fi
           # OSS job: never cache (no checkout; repo files not available)
           echo "use_cache=0" >> "$GITHUB_OUTPUT"

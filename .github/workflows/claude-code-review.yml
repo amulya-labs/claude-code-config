@@ -97,14 +97,24 @@ jobs:
           ref: ${{ steps.pr.outputs.number != '' && format('refs/pull/{0}/head', steps.pr.outputs.number) || github.ref }}
 
       - name: Post review-started notice
-        if: github.event_name == 'issue_comment'
+        if: github.event_name != 'pull_request' || github.event.action == 'review_requested'
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_ACTION: ${{ github.event.action }}
         run: |
+          case "$EVENT_NAME" in
+            issue_comment) TRIGGER="\`/claude-review\`" ;;
+            pull_request)  TRIGGER="PR $EVENT_ACTION" ;;
+            *)             TRIGGER="workflow dispatch" ;;
+          esac
+          printf '🤖 **Claude Code Review** in progress… [View run](%s)\n> Triggered by %s.' \
+            "$RUN_URL" "$TRIGGER" > /tmp/review-started.md
           gh pr comment "${{ steps.pr.outputs.number }}" \
             --repo "${{ github.repository }}" \
-            --body "> 🤖 **Claude Code Review** in progress… [View run]($RUN_URL)"
+            --body-file /tmp/review-started.md \
+            2>/dev/null || echo "WARNING: Failed to post review-started notice" >&2
 
       - name: Check PR size
         id: pr-size
@@ -296,6 +306,25 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             "/repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions" \
             -f content='eyes'
+
+      - name: Post review-started notice
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_ACTION: ${{ github.event.action }}
+        run: |
+          case "$EVENT_NAME" in
+            issue_comment) TRIGGER="\`/claude-review\`" ;;
+            pull_request)  TRIGGER="PR $EVENT_ACTION" ;;
+            *)             TRIGGER="workflow dispatch" ;;
+          esac
+          printf '🤖 **Claude Code Review** in progress… [View run](%s)\n> Triggered by %s.' \
+            "$RUN_URL" "$TRIGGER" > /tmp/review-started.md
+          gh pr comment "${{ steps.pr.outputs.number }}" \
+            --repo "${{ github.repository }}" \
+            --body-file /tmp/review-started.md \
+            2>/dev/null || echo "WARNING: Failed to post review-started notice" >&2
 
       - name: Run Claude Code Review (OSS)
         id: claude-review
