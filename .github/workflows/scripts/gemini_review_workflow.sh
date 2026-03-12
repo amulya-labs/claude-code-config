@@ -49,25 +49,52 @@ set -euo pipefail
 # $1 = URL, $2 = path to JSON payload file (avoids ARG_MAX with large diffs)
 gemini_api_call() {
   local url="$1" payload_file="$2"
-  local attempt delay http_code
+  local attempt delay http_code curl_exit
   delay=2
   for attempt in 1 2 3; do
+    http_code=""
+    curl_exit=0
+    # Temporarily disable errexit so curl network failures don't abort the script
+    set +e
     http_code=$(curl -s \
       -o /tmp/gemini-resp.json \
       -w '%{http_code}' \
       "$url" -H 'Content-Type: application/json' -d "@$payload_file" 2>/dev/null)
+    curl_exit=$?
+    set -e
+
+    if [ "$curl_exit" -ne 0 ]; then
+      echo "WARNING: curl failed with exit code $curl_exit (attempt $attempt/3); retrying in ${delay}s..." >&2
+      if [ "$attempt" -lt 3 ]; then
+        sleep "$delay"
+        delay=$((delay * 2))
+        continue
+      else
+        echo "ERROR: Gemini API failed after 3 attempts (curl exit $curl_exit)" >&2
+        [ -f /tmp/gemini-resp.json ] && cat /tmp/gemini-resp.json >&2
+        return 1
+      fi
+    fi
+
     case "$http_code" in
-      200) cat /tmp/gemini-resp.json; return 0 ;;
+      200)
+        [ -f /tmp/gemini-resp.json ] && cat /tmp/gemini-resp.json
+        return 0
+        ;;
       429|500|502|503|504)
         echo "WARNING: Gemini API HTTP $http_code (attempt $attempt/3); retrying in ${delay}s..." >&2
-        sleep "$delay"; delay=$((delay * 2)) ;;
+        sleep "$delay"
+        delay=$((delay * 2))
+        ;;
       *)
         echo "ERROR: Gemini API HTTP $http_code (non-retryable)" >&2
-        cat /tmp/gemini-resp.json >&2; return 1 ;;
+        [ -f /tmp/gemini-resp.json ] && cat /tmp/gemini-resp.json >&2
+        return 1
+        ;;
     esac
   done
   echo "ERROR: Gemini API failed after 3 attempts (last HTTP $http_code)" >&2
-  cat /tmp/gemini-resp.json >&2
+  [ -f /tmp/gemini-resp.json ] && cat /tmp/gemini-resp.json >&2
   return 1
 }
 
@@ -232,7 +259,8 @@ else
     METRICS_FILE="/tmp/review-metrics-phase2.json" \
     CACHE_MANIFEST_PATH="${CACHE_MANIFEST_PATH:-.github/gemini-cache-manifest.yml}" \
     python3 "$REVIEW_SCRIPT_PATH"; then
-    update_status phase2_inline "success"
+    # Note: status is set to "success" after inline comments are posted (below)
+    :
   else
     echo "ERROR: Phase 2 (inline review) failed with exit code $?" >&2
     update_status phase2_inline "failed:script_error"
@@ -333,11 +361,12 @@ EXISTING_ID=$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" \
   2>/dev/null || true)
 
 if [ -n "$EXISTING_ID" ]; then
-  gh api \
+  jq -n --rawfile body /tmp/review-body.md '{"body": $body}' \
+  | gh api \
     --method PATCH \
     -H "Accept: application/vnd.github+json" \
     "/repos/$REPO/issues/comments/$EXISTING_ID" \
-    --field body="$(cat /tmp/review-body.md)"
+    --input -
 else
   gh pr comment "$PR_NUMBER" \
     --repo "$REPO" \
@@ -364,7 +393,7 @@ if [ "$COUNT" -gt 0 ]; then
     )
   }]' /tmp/inline-comments.json)
 
-  jq -n \
+  if jq -n \
     --arg commit_id "$HEAD_SHA" \
     --arg body "" \
     --arg event "COMMENT" \
@@ -374,7 +403,18 @@ if [ "$COUNT" -gt 0 ]; then
     --method POST \
     -H "Accept: application/vnd.github+json" \
     "/repos/$REPO/pulls/$PR_NUMBER/reviews" \
-    --input -
+    --input -; then
+    update_status phase2_inline "success"
+  else
+    echo "WARNING: Failed to post inline review comments (invalid line numbers or GitHub API error); findings are in the summary table above." >&2
+    update_status phase2_inline "failed:inline_post"
+  fi
+else
+  # No findings to post; Phase 2 script succeeded if we reached here
+  PHASE2_CUR=$(jq -r '.phase2_inline' /tmp/review-status.json)
+  if [ "$PHASE2_CUR" = "pending" ]; then
+    update_status phase2_inline "success"
+  fi
 fi
 
 # ---------------------------------------------------------------------------

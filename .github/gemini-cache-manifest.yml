@@ -8,6 +8,7 @@
 # Patterns use Python pathlib.glob() syntax (supports ** for recursive match).
 
 include:
+  # High-value context files listed first (order determines position in cache corpus)
   - "docs/adr/**/*.md"
   - "docs/architecture/**/*.md"
   - "ARCHITECTURE.md"
@@ -15,4 +16,3 @@ include:
   - "CONTRIBUTING.md"
   - "README.md"
   - "docs/contracts/**/*"
-  - "*.md"

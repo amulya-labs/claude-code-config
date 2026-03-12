@@ -198,20 +198,35 @@ def parse_cache_manifest(manifest_path: str) -> list:
     return patterns
 
 
+def _validate_glob_pattern(pattern: str) -> bool:
+    """
+    Validate that a glob pattern is safe (no path traversal or absolute paths).
+    Returns True if the pattern is safe to use, False otherwise.
+    """
+    if os.path.isabs(pattern):
+        log(f"WARNING: Rejecting absolute glob pattern: {pattern}")
+        return False
+    if ".." in pattern:
+        log(f"WARNING: Rejecting glob pattern with path traversal: {pattern}")
+        return False
+    return True
+
+
 def build_cache_corpus() -> str:
     """
     Collect text source files into a corpus for context caching.
     Uses a manifest file if available, otherwise falls back to defaults.
     Skips binaries, lock files, and secret/credential files.
+    Validates patterns and resolved paths to prevent directory traversal.
     """
-    cwd = Path(".")
+    cwd = Path(".").resolve()
 
     # Try to load manifest patterns
     manifest_patterns = parse_cache_manifest(CACHE_MANIFEST_PATH)
 
     if manifest_patterns:
         log(f"Using cache manifest from {CACHE_MANIFEST_PATH} ({len(manifest_patterns)} patterns)")
-        patterns = manifest_patterns
+        patterns = [p for p in manifest_patterns if _validate_glob_pattern(p)]
     else:
         log(f"No cache manifest at {CACHE_MANIFEST_PATH}; using defaults: {DEFAULT_CACHE_PATTERNS}")
         patterns = DEFAULT_CACHE_PATTERNS
@@ -220,8 +235,13 @@ def build_cache_corpus() -> str:
     seen: set = set()
     parts = []
     for pattern in patterns:
-        for path in sorted(cwd.glob(pattern)):
+        for path in sorted(Path(".").glob(pattern)):
             if not path.is_file():
+                continue
+            # Ensure resolved path is under the repo root (prevents symlink escapes)
+            resolved = path.resolve()
+            if not str(resolved).startswith(str(cwd)):
+                log(f"WARNING: Skipping file outside repo root: {path} -> {resolved}")
                 continue
             rel = str(path)
             if rel in seen:
@@ -460,6 +480,20 @@ def create_cache(client, model: str, corpus: str, display_name: str):
 # Main review logic
 # ---------------------------------------------------------------------------
 
+def _thinking_config_for_model(model: str):
+    """
+    Return an appropriate ThinkingConfig for the given model.
+    Pro models get the full thinking budget; Flash models get thinking disabled
+    to avoid unnecessary latency and token cost on light reviews.
+    """
+    from google.genai import types
+
+    if "pro" in model.lower():
+        return types.ThinkingConfig(thinking_budget=REVIEW_THINKING_BUDGET)
+    # Flash: disable thinking to keep light reviews fast and cheap
+    return types.ThinkingConfig(thinking_budget=0)
+
+
 def run_review_direct(client, model: str, prompt: str) -> tuple:
     """
     Send the prompt directly to the model (no caching).
@@ -477,9 +511,7 @@ def run_review_direct(client, model: str, prompt: str) -> tuple:
             config=types.GenerateContentConfig(
                 temperature=0.1,
                 max_output_tokens=REVIEW_MAX_OUTPUT_TOKENS,
-                thinking_config=types.ThinkingConfig(
-                    thinking_budget=REVIEW_THINKING_BUDGET,
-                ),
+                thinking_config=_thinking_config_for_model(model),
             ),
         )
 
@@ -511,9 +543,7 @@ def run_review_with_cache(client, model: str, cache_name: str, diff: str) -> tup
                 temperature=0.1,
                 max_output_tokens=REVIEW_MAX_OUTPUT_TOKENS,
                 cached_content=cache_name,
-                thinking_config=types.ThinkingConfig(
-                    thinking_budget=REVIEW_THINKING_BUDGET,
-                ),
+                thinking_config=_thinking_config_for_model(model),
             ),
         )
 
