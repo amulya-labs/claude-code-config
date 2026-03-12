@@ -241,6 +241,10 @@ jobs:
 
           try:
               sources_json = json.loads(list_result.stdout)
+              if not isinstance(sources_json, list):
+                  print(f"::error::Expected JSON array from nlm source list, got {type(sources_json).__name__}")
+                  print(f"Raw output: {list_result.stdout[:500]}")
+                  sys.exit(1)
               for src in sources_json:
                   title = src.get("title", "").strip()
                   src_id = src.get("id", "")
@@ -251,7 +255,8 @@ jobs:
               print(f"Raw output: {list_result.stdout[:500]}")
               sys.exit(1)
 
-          print(f"Existing sources in notebook: {dict(source_map)}")
+          total_existing = sum(len(ids) for ids in source_map.values())
+          print(f"Found {total_existing} existing source(s) across {len(source_map)} title(s)")
 
           for entry in manifest:
               name = entry["name"]
