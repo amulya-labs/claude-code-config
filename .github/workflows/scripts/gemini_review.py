@@ -482,15 +482,16 @@ def create_cache(client, model: str, corpus: str, display_name: str):
 
 def _thinking_config_for_model(model: str):
     """
-    Return an appropriate ThinkingConfig for the given model.
-    Pro models get the full thinking budget; Flash models get thinking disabled
-    to avoid unnecessary latency and token cost on light reviews.
+    Return an appropriate ThinkingConfig based on review mode.
+    Light mode disables thinking for speed/cost. Deep and pro modes enable
+    thinking so the model can reason through complex diffs before responding.
     """
     from google.genai import types
 
-    if "pro" in model.lower():
+    mode = os.environ.get("MODE", "light")
+    if mode in ("deep", "pro"):
         return types.ThinkingConfig(thinking_budget=REVIEW_THINKING_BUDGET)
-    # Flash: disable thinking to keep light reviews fast and cheap
+    # Light: disable thinking to keep reviews fast and cheap
     return types.ThinkingConfig(thinking_budget=0)
 
 

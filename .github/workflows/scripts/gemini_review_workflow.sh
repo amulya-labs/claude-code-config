@@ -109,21 +109,19 @@ update_status() { # $1=key, $2=value
 
 FLASH_MODEL="gemini-2.5-flash"
 
-# Mode-aware output token budget for Phase 1 summary.
-# Light mode asks for ~100 words (fits in 512 tokens). Deep mode asks for
-# ~200 words across 3 paragraphs, which routinely needs 600-800 tokens for
-# large PRs. 2048 gives ample headroom without being wasteful.
-if [ "${MODE}" = "deep" ]; then
-  SUMMARY_MAX_TOKENS=2048
-else
-  SUMMARY_MAX_TOKENS=512
-fi
+# Liberal output token budget for Phase 1 summary.
+# Cost is negligible (~$0.002 at Flash pricing). 4096 tokens (~3000 words)
+# provides ample headroom for any PR size in any mode.
+SUMMARY_MAX_TOKENS=4096
 
 # ---------------------------------------------------------------------------
 # Post review-started notice (non-fatal)
 # ---------------------------------------------------------------------------
 
-if [[ "${COMMENT_BODY}" == /gemini-deep-review* ]]; then
+if [[ "${COMMENT_BODY}" == /gemini-pro-review* ]]; then
+  REVIEW_LABEL="Pro"
+  TRIGGER_CMD="/gemini-pro-review"
+elif [[ "${COMMENT_BODY}" == /gemini-deep-review* ]]; then
   REVIEW_LABEL="Deep"
   TRIGGER_CMD="/gemini-deep-review"
 elif [[ "${COMMENT_BODY}" == /gemini-light-review* ]]; then
@@ -312,7 +310,9 @@ COUNT=$(jq 'length' /tmp/inline-comments.json)
 # Build summary comment
 # ---------------------------------------------------------------------------
 
-if [ "${MODE}" = "deep" ]; then
+if [ "${MODE}" = "pro" ]; then
+  RETRIGGER="/gemini-pro-review"
+elif [ "${MODE}" = "deep" ]; then
   RETRIGGER="/gemini-deep-review"
 else
   RETRIGGER="/gemini-review"
