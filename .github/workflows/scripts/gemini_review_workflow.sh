@@ -435,7 +435,10 @@ if [ "$COUNT" -gt 0 ]; then
     body: (
       "**[\(.severity)]** \(.comment)" +
       (if (.suggestion != null and .suggestion != "") then
-        "\n\n```suggestion\n\(.suggestion)\n```"
+        # Strip code fences from suggestion content to prevent nested fences
+        # from breaking the ```suggestion wrapper and swallowing the footer.
+        (.suggestion | gsub("```[a-zA-Z]*";"") | gsub("\\s+$";"")) as $clean
+        | "\n\n```suggestion\n\($clean)\n```"
       else "" end) +
       $footer
     )
