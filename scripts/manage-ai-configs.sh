@@ -302,10 +302,48 @@ download_gha_workflow_templates() {
     # download_dir "github-workflow-templates" ".github/workflows"
 }
 
+stage_downloaded_files() {
+    local _p _up _cdir_var
+    for _p in "${PROVIDERS_ENABLED[@]}"; do
+        _up=$(printf '%s' "$_p" | tr '[:lower:]' '[:upper:]')
+        _cdir_var="PROVIDER_${_up}_CONFIG_DIR"
+        if [[ -v "$_cdir_var" ]]; then
+            git add "${!_cdir_var}" 2>/dev/null || true
+        fi
+        local _extra_var="PROVIDER_${_up}_EXTRA_FILES"
+        if [[ -v "$_extra_var" ]] && [[ -n "${!_extra_var}" ]]; then
+            local -a _extra_list
+            read -ra _extra_list <<< "${!_extra_var}"
+            for _ef in "${_extra_list[@]}"; do
+                git add "$_ef" 2>/dev/null || true
+            done
+        fi
+    done
+    git add .github/workflows/ 2>/dev/null || true
+}
+
+print_provider_summary() {
+    local verb="$1"
+    local _p _up
+    for _p in "${PROVIDERS_ENABLED[@]}"; do
+        _up=$(printf '%s' "$_p" | tr '[:lower:]' '[:upper:]')
+        local label_var="PROVIDER_${_up}_LABEL"
+        local secrets_var="PROVIDER_${_up}_SECRETS"
+        info "${!label_var} workflows ${verb} in .github/workflows/"
+        local -a _secrets_list
+        read -ra _secrets_list <<< "${!secrets_var}"
+        for _s in "${_secrets_list[@]}"; do
+            warn "  → Requires ${_s} secret in your repo settings"
+        done
+    done
+    if $WITH_GHA_WORKFLOWS; then
+        info "Extra workflow templates ${verb} to .github/workflows/"
+    fi
+}
+
 install_config() {
     check_git
 
-    # Check each provider's config dir independently
     local _p _up _cdir_var _cdir
     for _p in "${PROVIDERS_ENABLED[@]}"; do
         _up=$(printf '%s' "$_p" | tr '[:lower:]' '[:upper:]')
@@ -321,32 +359,11 @@ install_config() {
     info "Installing AI Dev Foundry config..."
     echo ""
     download_all
-
-    for _p in "${PROVIDERS_ENABLED[@]}"; do
-        _up=$(printf '%s' "$_p" | tr '[:lower:]' '[:upper:]')
-        _cdir_var="PROVIDER_${_up}_CONFIG_DIR"
-        if [[ -v "$_cdir_var" ]]; then
-            git add "${!_cdir_var}" 2>/dev/null || true
-        fi
-    done
-    git add .github/workflows/ 2>/dev/null || true
+    stage_downloaded_files
 
     echo ""
     info "Done! Config installed."
-    for _p in "${PROVIDERS_ENABLED[@]}"; do
-        _up=$(printf '%s' "$_p" | tr '[:lower:]' '[:upper:]')
-        local label_var="PROVIDER_${_up}_LABEL"
-        local secrets_var="PROVIDER_${_up}_SECRETS"
-        info "${!label_var} workflows installed in .github/workflows/"
-        local -a _secrets_list
-        read -ra _secrets_list <<< "${!secrets_var}"
-        for _s in "${_secrets_list[@]}"; do
-            warn "  → Requires ${_s} secret in your repo settings"
-        done
-    done
-    if $WITH_GHA_WORKFLOWS; then
-        info "Extra workflow templates installed to .github/workflows/"
-    fi
+    print_provider_summary "installed"
     echo ""
     echo "Next steps:"
     echo "  git commit -m 'Add AI Dev Foundry config'"
@@ -356,7 +373,6 @@ install_config() {
 update_config() {
     check_git
 
-    # Check each provider's config dir independently
     local _p _up _cdir_var _cdir
     for _p in "${PROVIDERS_ENABLED[@]}"; do
         _up=$(printf '%s' "$_p" | tr '[:lower:]' '[:upper:]')
@@ -372,32 +388,11 @@ update_config() {
     info "Updating AI Dev Foundry config..."
     echo ""
     download_all
-
-    for _p in "${PROVIDERS_ENABLED[@]}"; do
-        _up=$(printf '%s' "$_p" | tr '[:lower:]' '[:upper:]')
-        _cdir_var="PROVIDER_${_up}_CONFIG_DIR"
-        if [[ -v "$_cdir_var" ]]; then
-            git add "${!_cdir_var}" 2>/dev/null || true
-        fi
-    done
-    git add .github/workflows/ 2>/dev/null || true
+    stage_downloaded_files
 
     echo ""
     info "Done! Config updated."
-    for _p in "${PROVIDERS_ENABLED[@]}"; do
-        _up=$(printf '%s' "$_p" | tr '[:lower:]' '[:upper:]')
-        local label_var="PROVIDER_${_up}_LABEL"
-        local secrets_var="PROVIDER_${_up}_SECRETS"
-        info "${!label_var} workflows updated in .github/workflows/"
-        local -a _secrets_list
-        read -ra _secrets_list <<< "${!secrets_var}"
-        for _s in "${_secrets_list[@]}"; do
-            warn "  → Requires ${_s} secret in your repo settings"
-        done
-    done
-    if $WITH_GHA_WORKFLOWS; then
-        info "Extra workflow templates updated in .github/workflows/"
-    fi
+    print_provider_summary "updated"
     echo ""
     echo "Next steps:"
     echo "  git diff --cached  # review changes"

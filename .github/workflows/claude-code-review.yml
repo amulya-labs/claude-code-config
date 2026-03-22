@@ -249,7 +249,9 @@ jobs:
   # OSS / PUBLIC (public repos)
   # =============================
   claude-review-oss:
-    # SECURITY: never checkout PR code in public/OSS mode. Use gh pr diff/view only.
+    # SECURITY: checkout the default branch only — never the PR head.
+    # The claude-code-action restores .claude/ config from this trusted base.
+    # PR content is accessed exclusively via `gh` API commands.
     if: |
       github.event.repository.visibility == 'public' && (
         (
@@ -306,6 +308,12 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             "/repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions" \
             -f content='eyes'
+
+      - name: Checkout default branch (minimal)
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
 
       - name: Post review-started notice
         env:
