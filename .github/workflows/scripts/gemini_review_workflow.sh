@@ -437,7 +437,8 @@ if [ "$COUNT" -gt 0 ]; then
       (if (.suggestion != null and .suggestion != "") then
         # Strip code fences from suggestion content to prevent nested fences
         # from breaking the ```suggestion wrapper and swallowing the footer.
-        (.suggestion | gsub("```[a-zA-Z]*";"") | gsub("\\s+$";"")) as $clean
+        # [^\n]* matches any language tag (python, c++, c#, objective-c, etc.)
+        (.suggestion | gsub("```[^\\n]*";"") | gsub("\\s+$";"")) as $clean
         | "\n\n```suggestion\n\($clean)\n```"
       else "" end) +
       $footer
