@@ -249,7 +249,9 @@ jobs:
   # OSS / PUBLIC (public repos)
   # =============================
   claude-review-oss:
-    # SECURITY: never checkout PR code in public/OSS mode. Use gh pr diff/view only.
+    # SECURITY: checkout the default branch only — never the PR head.
+    # The claude-code-action restores .claude/ config from this trusted base.
+    # PR content is accessed exclusively via `gh` API commands.
     if: |
       github.event.repository.visibility == 'public' && (
         (
