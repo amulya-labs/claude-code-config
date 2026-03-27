@@ -283,6 +283,9 @@ patterns = [
     "^helmfile apply",
     "^helmfile sync",
     "^helmfile destroy",
+    # k3s-helm (k3s bundled helm wrapper) — all commands prompt
+    "^k3s-helm ",
+    "^poetrun run k3s-helm ",
 ]
 
 [ask.infrastructure_as_code]
@@ -312,6 +315,9 @@ patterns = [
     "gcloud .* create(\\s|$)",
     "az .* delete(\\s|$)",
     "az .* create(\\s|$)",
+    # Supabase mutations
+    "supabase .* (delete|reset|push|destroy)(\\s|$)",
+    "supabase (db push|db reset|projects delete|functions delete)(\\s|$)",
 ]
 
 [ask.process_control]
@@ -778,10 +784,16 @@ patterns = [
     "^ltrace",
     "^perf ",
     "^valgrind",
-    # Desktop/display environment info (read-only queries)
+    # Desktop/display environment info
     "^gnome-extensions ",
     "^glxinfo",
+    "^gsettings (get|list|describe|range|monitor|help)",
+    "^dconf (dump|read|list|watch|help)",
+    "^update-desktop-database",
     "^prime-select query",
+    "^findmnt",
+    "^pstree",
+    "^numfmt",
 ]
 
 [allow.system_user_info]
@@ -808,6 +820,15 @@ patterns = [
     "^[a-z][a-z0-9_-]+ version( |$)",
 ]
 
+[allow.gsd_framework]
+description = "Get-Shit-Done (GSD) framework commands"
+# GSD runs node commands via gsd-tools.cjs for workstream management,
+# planning, and git operations on .planning/ directories.
+patterns = [
+    # GSD tools CLI (matched anywhere in segment after env-var stripping)
+    "gsd-tools\\.cjs",
+]
+
 [allow.command_wrappers]
 description = "Command execution wrappers"
 patterns = [
@@ -817,6 +838,8 @@ patterns = [
     "^parallel",
     "^chronic",
     "^sponge",
+    # Poetry runner
+    "^poetrun run ",
 ]
 
 [allow.javascript]
@@ -950,6 +973,17 @@ patterns = [
     "^perl ",
 ]
 
+[allow.image_tools]
+description = "Image processing and conversion tools"
+patterns = [
+    "^convert ",
+    "^identify ",
+    "^inkscape",
+    "^magick ",
+    "^ffmpeg",
+    "^ffprobe",
+]
+
 [allow.build_tools]
 description = "Build systems and task runners"
 patterns = [
@@ -1026,6 +1060,10 @@ patterns = [
     # Common script patterns
     "^\\./bin/",
     "^bin/",
+    # Shell interpreter + known safe directories (e.g. bash scripts/foo.sh)
+    "^(bash|sh|zsh) tests/",
+    "^(bash|sh|zsh) scripts/",
+    "^(bash|sh|zsh) bin/",
 ]
 
 [allow.databases]
@@ -1049,6 +1087,10 @@ patterns = [
     "^ansible ",
     "^vagrant",
     "^packer",
+    # Supabase
+    "^supabase",
+    # Firecrawl (read-only scraping/search CLI)
+    "^firecrawl",
 ]
 
 [allow.file_operations]
@@ -1178,6 +1220,11 @@ patterns = [
     "^ip ",
     "^ifconfig",
     "^nc ",
+    "^whois",
+    "^ethtool [a-z]",
+    "^nmcli (connection|device|general|radio|monitor) (show|list|status|help)",
+    "^tc (qdisc|filter|class|route) (show|list|get) ",
+    "^sysctl [a-z]",
 ]
 
 [allow.docker]
