@@ -1300,6 +1300,109 @@ description = "newline: safe git + force push"
 command = "echo start\nkubectl apply -f deploy.yaml\necho done"
 description = "newline: safe + risky kubectl apply + safe"
 
+# Network diagnostics (new)
+[[allow]]
+command = "whois example.com"
+description = "whois lookup"
+
+[[allow]]
+command = "ethtool enp8s0"
+description = "ethtool interface info"
+
+[[allow]]
+command = "nmcli connection show"
+description = "nmcli connection list"
+
+[[allow]]
+command = "tc qdisc show dev enp8s0"
+description = "tc qdisc read-only"
+
+[[allow]]
+command = "sysctl net.ipv4.tcp_window_scaling"
+description = "sysctl read-only query"
+
+# System inspection (new)
+[[allow]]
+command = "findmnt /var/lib/data"
+description = "findmnt mount info"
+
+[[allow]]
+command = "pstree -p 1234"
+description = "pstree process tree"
+
+[[allow]]
+command = "numfmt --from=iec 100G"
+description = "numfmt number formatting"
+
+# Desktop/display (new)
+[[allow]]
+command = "gsettings get org.gnome.desktop.interface color-scheme"
+description = "gsettings read"
+
+[[allow]]
+command = "gsettings set org.gnome.desktop.interface color-scheme 'default'"
+description = "gsettings write"
+
+[[allow]]
+command = "dconf dump /org/gnome/shell/"
+description = "dconf dump"
+
+[[allow]]
+command = "update-desktop-database ~/.local/share/applications/"
+description = "update-desktop-database"
+
+# Image tools (new)
+[[allow]]
+command = "convert input.png -resize 256x256 output.png"
+description = "ImageMagick convert"
+
+[[allow]]
+command = "identify image.png"
+description = "ImageMagick identify"
+
+[[allow]]
+command = "inkscape --export-type=png --export-width=512 input.svg"
+description = "inkscape export"
+
+[[allow]]
+command = "ffmpeg -i input.mp4 -c:v libx264 output.mp4"
+description = "ffmpeg conversion"
+
+[[allow]]
+command = "ffprobe input.mp4"
+description = "ffprobe inspection"
+
+# Cloud CLIs (new)
+[[allow]]
+command = "wrangler types"
+description = "wrangler types generation"
+
+[[allow]]
+command = "supabase projects list"
+description = "supabase CLI"
+
+[[allow]]
+command = "firecrawl search 'test query'"
+description = "firecrawl search"
+
+[[allow]]
+command = "firecrawl scrape https://example.com"
+description = "firecrawl scrape"
+
+# Local scripts with shell interpreter prefix (new)
+[[allow]]
+command = "bash scripts/sync-contracts.sh"
+description = "bash + local script in scripts/"
+
+[[allow]]
+command = "sh tests/test-validate-bash.sh"
+description = "sh + local script in tests/"
+
+# Poetry runner (new)
+[[allow]]
+command = "poetrun run some-command arg1 arg2"
+description = "poetrun run wrapper"
+
 # =============================================================================
 # ASK - Commands that should prompt for confirmation
 # =============================================================================
@@ -1768,6 +1871,30 @@ description = "helm upgrade"
 [[ask]]
 command = "helm uninstall myrelease"
 description = "helm uninstall"
+
+[[ask]]
+command = "k3s-helm install myrelease ./chart"
+description = "k3s-helm install"
+
+[[ask]]
+command = "k3s-helm upgrade myrelease ./chart"
+description = "k3s-helm upgrade"
+
+[[ask]]
+command = "k3s-helm list"
+description = "k3s-helm list (all k3s-helm commands prompt)"
+
+[[ask]]
+command = "poetrun run k3s-helm install myrelease ./chart"
+description = "poetrun run k3s-helm install"
+
+[[ask]]
+command = "poetrun run k3s-helm upgrade myrelease ./chart"
+description = "poetrun run k3s-helm upgrade"
+
+[[ask]]
+command = "poetrun run k3s-helm list"
+description = "poetrun run k3s-helm list (all poetrun k3s-helm commands prompt)"
 
 [[ask]]
 command = "terraform apply"
