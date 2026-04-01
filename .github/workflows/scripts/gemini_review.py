@@ -48,7 +48,11 @@ TOKEN_LIMIT = 1_000_000
 # Minimum tokens needed to justify creating a context cache
 CACHE_MIN_TOKENS = 4_096
 
-# Cache TTL: 12 hours in seconds
+# Cache TTL (only applies when USE_CACHE=1).
+# WARNING: Cached content storage is billed per token-hour. With a 12h TTL and
+# moderate PR volume, this can easily cost $40-50/month on Gemini 2.5 Pro.
+# Caching is currently disabled in the workflow (USE_CACHE=0). Only re-enable
+# if the per-request savings outweigh the storage costs for your usage pattern.
 CACHE_TTL_SECONDS = 12 * 3600
 
 # Retry configuration for transient API errors (429, 5xx)

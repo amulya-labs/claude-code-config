@@ -79,7 +79,9 @@ jobs:
           if [[ "$COMMENT_BODY" == /gemini-pro-review* ]]; then
             echo "model=gemini-2.5-pro" >> "$GITHUB_OUTPUT"
             echo "mode=pro" >> "$GITHUB_OUTPUT"
-            echo "use_cache=1" >> "$GITHUB_OUTPUT"
+            # Caching disabled — storage costs ~$40-50/month even with moderate use
+            # (12h TTL × frequent PRs adds up fast). Set to 1 to re-enable.
+            echo "use_cache=0" >> "$GITHUB_OUTPUT"
           elif [[ "$COMMENT_BODY" == /gemini-deep-review* ]]; then
             echo "model=gemini-2.5-flash" >> "$GITHUB_OUTPUT"
             echo "mode=deep" >> "$GITHUB_OUTPUT"
