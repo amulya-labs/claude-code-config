@@ -275,9 +275,12 @@ merge_settings_json() {
 
         # Merge hooks: for each event in upstream, replace-by-matcher or append
         def merge_hook_event(local_arr; upstream_arr):
-            (upstream_arr | map(.matcher) | map(select(. != null))) as $u_matchers |
-            [local_arr[] | select(.matcher as $m | ($u_matchers | index($m)) == null)] +
-            upstream_arr;
+            if (local_arr | type) != "array" then upstream_arr
+            else
+                (upstream_arr | map(.matcher) | map(select(. != null))) as $u_matchers |
+                [local_arr[] | select(.matcher as $m | ($u_matchers | index($m)) == null)] +
+                upstream_arr
+            end;
 
         (($l.hooks // {}) | keys) as $local_hook_keys |
         (($u.hooks // {}) | keys) as $upstream_hook_keys |
@@ -308,8 +311,8 @@ merge_settings_json() {
             end
         )) as $merged_perms |
 
-        # Start with local (preserves all user keys), then overlay managed keys
-        $l
+        # Start with upstream+local (new upstream keys adopted; local wins on overlap)
+        ($u + $l)
         | if ($merged_hooks | length) > 0 then .hooks = $merged_hooks else . end
         | if ($merged_perms | length) > 0 then .permissions = $merged_perms else . end
     ' > "$output_file"

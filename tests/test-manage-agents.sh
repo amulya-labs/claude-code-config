@@ -527,20 +527,22 @@ if command -v jq &>/dev/null; then
     # Source the function for testing (extract just the function)
     MERGE_FN=$(sed -n '/^merge_settings_json()/,/^}/p' "$MANAGE_SCRIPT")
 
-    # Helper: run merge and return merged JSON
+    # Helper: run merge and return merged JSON (propagates exit code)
     run_merge() {
         local upstream_file="$1" local_file="$2"
-        local output_file
+        local output_file rc
         output_file=$(mktemp)
         # Source the function in a subshell with stubs for info/warn
+        rc=0
         (
             info() { :; }
             warn() { :; }
             eval "$MERGE_FN"
             merge_settings_json "$upstream_file" "$local_file" "$output_file"
-        )
+        ) || rc=$?
         cat "$output_file"
         rm -f "$output_file"
+        return "$rc"
     }
 
     # Test 1: User env/model preserved after merge
@@ -676,6 +678,50 @@ UPSTREAM
         assert "Malformed local JSON: backs up and overwrites" "fail"
     fi
     rm -f "$_up" "$_lo" "${_lo}.bak" "$_out"
+
+    # Test 7: New upstream top-level keys are adopted
+    _up=$(mktemp); _lo=$(mktemp)
+    cat > "$_up" << 'UPSTREAM'
+{
+  "hooks": {},
+  "permissions": {},
+  "plugins": ["mcp-server-fetch"]
+}
+UPSTREAM
+    cat > "$_lo" << 'LOCAL'
+{
+  "hooks": {},
+  "permissions": {},
+  "model": "opus"
+}
+LOCAL
+    _merged=$(run_merge "$_up" "$_lo")
+    if echo "$_merged" | jq -e '.plugins == ["mcp-server-fetch"] and .model == "opus"' &>/dev/null; then
+        assert "Merge adopts new upstream top-level keys" "pass"
+    else
+        assert "Merge adopts new upstream top-level keys" "fail" "Got: $_merged"
+    fi
+    rm -f "$_up" "$_lo"
+
+    # Test 8: Non-array hook event in local is replaced by upstream
+    _up=$(mktemp); _lo=$(mktemp)
+    cat > "$_up" << 'UPSTREAM'
+{
+  "hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "validate.sh"}]}]}
+}
+UPSTREAM
+    cat > "$_lo" << 'LOCAL'
+{
+  "hooks": {"PreToolUse": "not-an-array"}
+}
+LOCAL
+    _merged=$(run_merge "$_up" "$_lo")
+    if echo "$_merged" | jq -e '.hooks.PreToolUse | type == "array" and length == 1' &>/dev/null; then
+        assert "Merge handles non-array local hook event gracefully" "pass"
+    else
+        assert "Merge handles non-array local hook event gracefully" "fail" "Got: $_merged"
+    fi
+    rm -f "$_up" "$_lo"
 
 else
     echo "  (jq not installed — skipping merge functional tests)"
