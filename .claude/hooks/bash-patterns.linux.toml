@@ -1,0 +1,111 @@
+# Linux-specific bash command validation patterns
+# Merged on top of bash-patterns.toml when running on Linux (sys.platform == 'linux')
+#
+# Source: https://github.com/amulya-labs/ai-dev-foundry
+# License: MIT (https://opensource.org/licenses/MIT)
+#
+# These patterns extend the universal base patterns with Linux-specific commands.
+# Sections with the same name as base sections have their patterns APPENDED.
+# New sections are added as-is.
+#
+# NOTE: Many Linux commands are already in the base file (bash-patterns.toml)
+# because they were the original defaults. This file adds patterns that were
+# previously missing or are unique to Linux distributions.
+
+# =============================================================================
+# ASK PATTERNS - Linux-specific risky operations
+# =============================================================================
+
+[ask.network_config]
+description = "Linux network configuration (persistent changes)"
+patterns = [
+    "^ip link set",
+    "^ip addr (add|del|flush)",
+    "^ip route (add|del|replace|flush)",
+    "^nmcli connection (modify|add|delete|up|down)",
+    "^netplan apply",
+    "^brctl ",
+]
+
+[ask.disk_management]
+description = "Linux disk/volume management"
+patterns = [
+    "^mount ",
+    "^umount",
+    "^lvresize",
+    "^lvcreate",
+    "^lvremove",
+    "^vgcreate",
+    "^pvcreate",
+    "^cryptsetup",
+    "^mdadm",
+    "^swapoff",
+    "^mkswap",
+]
+
+[ask.apparmor_selinux]
+description = "Linux mandatory access control"
+patterns = [
+    "^aa-enforce",
+    "^aa-complain",
+    "^aa-disable",
+    "^setenforce",
+    "^setsebool",
+    "^chcon ",
+    "^restorecon",
+]
+
+# =============================================================================
+# ALLOW PATTERNS - Linux-specific safe operations
+# =============================================================================
+
+[allow.systemd_analysis]
+description = "systemd analysis and debugging (read-only)"
+patterns = [
+    "^systemd-analyze",
+    "^systemd-cgls",
+    "^systemd-cgtop",
+    "^busctl (list|tree|introspect|monitor|status)",
+    "^hostnamectl$",
+    "^hostnamectl status",
+    "^resolvectl (status|query|statistics)",
+    "^networkctl (list|status|lldp)",
+]
+
+[allow.linux_hardware_info]
+description = "Linux hardware inspection (read-only)"
+patterns = [
+    "^lshw",
+    "^dmidecode",
+    "^hwinfo",
+    "^udevadm info",
+    "^lsmod",
+    "^modinfo ",
+    "^cat /proc/(cpuinfo|meminfo|version|cmdline|partitions|mounts|uptime)",
+    "^cat /etc/(os-release|lsb-release|issue|hostname|fstab|resolv\\.conf)",
+]
+
+[allow.linux_process_tools]
+description = "Linux process inspection (read-only)"
+patterns = [
+    "^pidof ",
+    "^taskset -p ",
+    "^chrt -p ",
+    "^ionice -p ",
+    "^numactl --show",
+    "^numactl --hardware",
+    "^nproc --all",
+]
+
+[allow.linux_security_readonly]
+description = "Linux security inspection (read-only)"
+patterns = [
+    "^aa-status",
+    "^sestatus",
+    "^getenforce",
+    "^getsebool",
+    "^ausearch ",
+    "^aureport",
+    "^faillog -a",
+    "^lastlog",
+]

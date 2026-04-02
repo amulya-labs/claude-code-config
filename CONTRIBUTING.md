@@ -40,7 +40,7 @@ The `.claude/hooks/` directory contains hooks that validate and log Bash command
 
 ### Bash Command Validation
 
-The `validate-bash.sh` hook validates Bash commands against pattern lists in `bash-patterns.toml`.
+The `validate-bash.sh` hook validates Bash commands against pattern lists in `bash-patterns.toml` and OS-specific overlay files.
 
 **How it works:**
 
@@ -59,9 +59,19 @@ The `validate-bash.sh` hook validates Bash commands against pattern lists in `ba
 
 ### Customizing Patterns
 
-Edit `.claude/hooks/bash-patterns.toml` to add or modify patterns:
+Edit `.claude/hooks/bash-patterns.toml` for cross-platform patterns, or the OS-specific overlay files for platform-specific commands:
+
+| File | Platform | When loaded |
+|------|----------|-------------|
+| `bash-patterns.toml` | All | Always (base) |
+| `bash-patterns.linux.toml` | Linux | `sys.platform == 'linux'` |
+| `bash-patterns.darwin.toml` | macOS | `sys.platform == 'darwin'` |
+| `bash-patterns.windows.toml` | Windows (Git Bash) | `sys.platform in ('win32', 'cygwin', 'msys')` |
+
+OS overlay patterns are **appended** to matching base sections. New sections are added as-is. Base deny patterns are never weakened.
 
 ```toml
+# In bash-patterns.toml (universal):
 [allow.my_tools]
 description = "My custom tools"
 patterns = [
@@ -69,10 +79,11 @@ patterns = [
     "^another-tool ",
 ]
 
-[ask.my_dangerous_ops]
-description = "Operations I want to confirm"
+# In bash-patterns.darwin.toml (macOS-only):
+[allow.my_tools]
+description = "macOS-specific tools (extends base)"
 patterns = [
-    "^deploy ",
+    "^mac-only-tool ",
 ]
 ```
 

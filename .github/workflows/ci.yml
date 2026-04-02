@@ -123,32 +123,53 @@ jobs:
         run: |
           echo "Validating TOML configuration..."
           python3 -c "
-          import sys
+          import sys, re, glob
           try:
               import tomllib
           except ImportError:
               import tomli as tomllib
 
-          with open('.claude/hooks/bash-patterns.toml', 'rb') as f:
-              config = tomllib.load(f)
+          errors = 0
+          toml_files = ['.claude/hooks/bash-patterns.toml'] + sorted(
+              glob.glob('.claude/hooks/bash-patterns.*.toml')
+          )
 
-          # Validate structure
-          for category in ['deny', 'ask', 'allow']:
-              if category not in config:
-                  print(f'Warning: Missing [{category}] section')
-                  continue
-              for section, data in config[category].items():
-                  if not isinstance(data, dict):
-                      print(f'Error: {category}.{section} must be a table')
-                      sys.exit(1)
-                  if 'patterns' not in data:
-                      print(f'Error: {category}.{section} missing patterns key')
-                      sys.exit(1)
-                  if not isinstance(data['patterns'], list):
-                      print(f'Error: {category}.{section}.patterns must be a list')
-                      sys.exit(1)
+          for toml_path in toml_files:
+              print(f'Validating {toml_path}...')
+              with open(toml_path, 'rb') as f:
+                  config = tomllib.load(f)
 
-          print('TOML configuration is valid')
+              # Validate structure
+              for category in ['deny', 'ask', 'allow']:
+                  if category not in config:
+                      continue
+                  for section, data in config[category].items():
+                      prefix = f'{toml_path}: {category}.{section}'
+                      if not isinstance(data, dict):
+                          print(f'Error: {prefix} must be a table')
+                          errors += 1
+                          continue
+                      if 'patterns' not in data:
+                          print(f'Error: {prefix} missing patterns key')
+                          errors += 1
+                          continue
+                      if not isinstance(data['patterns'], list):
+                          print(f'Error: {prefix}.patterns must be a list')
+                          errors += 1
+                          continue
+                      # Validate each pattern compiles as regex
+                      for pattern in data['patterns']:
+                          try:
+                              re.compile(pattern)
+                          except re.error as e:
+                              print(f'Error: {prefix}: invalid regex \"{pattern}\": {e}')
+                              errors += 1
+              print(f'  OK: {toml_path}')
+
+          if errors:
+              print(f'\n{errors} error(s) found')
+              sys.exit(1)
+          print(f'\nAll {len(toml_files)} TOML file(s) are valid')
           "
 
       - name: Run hook tests

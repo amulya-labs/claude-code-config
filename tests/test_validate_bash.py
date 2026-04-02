@@ -11,6 +11,7 @@ License: MIT (https://opensource.org/licenses/MIT)
 import importlib.util
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -36,9 +37,17 @@ CONFIG_PATH = HOOKS_DIR / "bash-patterns.toml"
 
 @pytest.fixture(scope="session")
 def config():
-    """Load the TOML pattern configuration once per session."""
+    """Load the TOML pattern configuration once per session, including OS overlay."""
     with open(CONFIG_PATH, "rb") as f:
-        return tomllib.load(f)
+        cfg = tomllib.load(f)
+    # Merge OS-specific patterns (same logic as validate-bash.py main())
+    os_suffix = validate_bash.detect_os()
+    os_config_path = CONFIG_PATH.parent / f"bash-patterns.{os_suffix}.toml"
+    if os_config_path.is_file():
+        with open(os_config_path, "rb") as f:
+            os_cfg = tomllib.load(f)
+        cfg = validate_bash.merge_os_config(cfg, os_cfg)
+    return cfg
 
 
 @pytest.fixture(scope="session")
@@ -58,6 +67,19 @@ def load_test_cases():
     return data
 
 
+def _filter_by_os(cases: list[dict]) -> list[dict]:
+    """Filter test cases by current OS platform.
+
+    Cases with no 'os' field run on all platforms.
+    Cases with 'os' field only run when it matches the current platform.
+    """
+    current_os = validate_bash.detect_os()
+    return [
+        case for case in cases
+        if "os" not in case or case["os"] == current_os
+    ]
+
+
 # ── Parametrized test data ────────────────────────────────────────────────────
 
 _test_data = load_test_cases()
@@ -65,22 +87,22 @@ _test_data = load_test_cases()
 
 def _make_ids(category):
     """Generate descriptive test IDs from test case descriptions."""
-    return [case["description"] for case in _test_data.get(category, [])]
+    return [case["description"] for case in _filter_by_os(_test_data.get(category, []))]
 
 
 ALLOW_CASES = [
     (case["command"], case["description"])
-    for case in _test_data.get("allow", [])
+    for case in _filter_by_os(_test_data.get("allow", []))
 ]
 
 ASK_CASES = [
     (case["command"], case["description"])
-    for case in _test_data.get("ask", [])
+    for case in _filter_by_os(_test_data.get("ask", []))
 ]
 
 DENY_CASES = [
     (case["command"], case["description"])
-    for case in _test_data.get("deny", [])
+    for case in _filter_by_os(_test_data.get("deny", []))
 ]
 
 
@@ -547,6 +569,112 @@ class TestGitRootPatternInjection:
         pattern = r"^rm\s+/(?!tmp/).*(?!foo/)"
         result = validate_bash._add_to_negative_lookahead(pattern, r"home/user/")
         assert result == r"^rm\s+/(?!home/user/|tmp/).*(?!foo/)"
+
+
+class TestMergeOsConfig:
+    """Tests for OS-specific config merging."""
+
+    def test_merge_appends_to_existing_section(self):
+        base = {"allow": {"tools": {"description": "Tools", "patterns": ["^git"]}}}
+        overlay = {"allow": {"tools": {"description": "More tools", "patterns": ["^hg"]}}}
+        result = validate_bash.merge_os_config(base, overlay)
+        assert result["allow"]["tools"]["patterns"] == ["^git", "^hg"]
+
+    def test_merge_adds_new_section(self):
+        base = {"allow": {"tools": {"description": "Tools", "patterns": ["^git"]}}}
+        overlay = {"allow": {"macos": {"description": "macOS", "patterns": ["^brew"]}}}
+        result = validate_bash.merge_os_config(base, overlay)
+        assert "macos" in result["allow"]
+        assert result["allow"]["macos"]["patterns"] == ["^brew"]
+
+    def test_merge_preserves_base_patterns(self):
+        base = {"deny": {"danger": {"description": "Danger", "patterns": ["^rm -rf /"]}}}
+        overlay = {"deny": {"danger": {"description": "More danger", "patterns": ["^dd"]}}}
+        result = validate_bash.merge_os_config(base, overlay)
+        assert "^rm -rf /" in result["deny"]["danger"]["patterns"]
+        assert "^dd" in result["deny"]["danger"]["patterns"]
+
+    def test_merge_empty_overlay(self):
+        base = {"allow": {"tools": {"description": "Tools", "patterns": ["^git"]}}}
+        result = validate_bash.merge_os_config(base, {})
+        assert result["allow"]["tools"]["patterns"] == ["^git"]
+
+    def test_merge_new_category(self):
+        base = {"allow": {"tools": {"description": "Tools", "patterns": ["^git"]}}}
+        overlay = {"ask": {"risky": {"description": "Risky", "patterns": ["^ssh"]}}}
+        result = validate_bash.merge_os_config(base, overlay)
+        assert result["ask"]["risky"]["patterns"] == ["^ssh"]
+
+    def test_merge_skips_invalid_sections(self):
+        base = {"allow": {"tools": {"description": "Tools", "patterns": ["^git"]}}}
+        overlay = {"allow": {"bad": "not a dict"}}
+        result = validate_bash.merge_os_config(base, overlay)
+        assert result["allow"]["tools"]["patterns"] == ["^git"]
+        assert "bad" not in result["allow"]
+
+
+class TestDetectOs:
+    """Tests for OS detection."""
+
+    def test_linux_detection(self):
+        with patch("sys.platform", "linux"):
+            assert validate_bash.detect_os() == "linux"
+
+    def test_darwin_detection(self):
+        with patch("sys.platform", "darwin"):
+            assert validate_bash.detect_os() == "darwin"
+
+    def test_win32_detection(self):
+        with patch("sys.platform", "win32"):
+            assert validate_bash.detect_os() == "windows"
+
+    def test_cygwin_detection(self):
+        with patch("sys.platform", "cygwin"):
+            assert validate_bash.detect_os() == "windows"
+
+    def test_msys_detection(self):
+        with patch("sys.platform", "msys"):
+            assert validate_bash.detect_os() == "windows"
+
+
+class TestOsSpecificPatterns:
+    """Integration tests verifying OS-specific patterns load correctly."""
+
+    @pytest.fixture(scope="class")
+    def os_toml_files(self):
+        """Find all OS-specific TOML files."""
+        return list(HOOKS_DIR.glob("bash-patterns.*.toml"))
+
+    def test_os_toml_files_are_valid(self, os_toml_files):
+        """All OS-specific TOML files parse without error."""
+        for path in os_toml_files:
+            with open(path, "rb") as f:
+                config = tomllib.load(f)
+            for category in ("deny", "ask", "allow"):
+                for section_name, section in config.get(category, {}).items():
+                    assert isinstance(section, dict), (
+                        f"{path.name}: {category}.{section_name} must be a table"
+                    )
+                    assert "patterns" in section, (
+                        f"{path.name}: {category}.{section_name} missing 'patterns'"
+                    )
+
+    def test_os_patterns_compile(self, os_toml_files):
+        """All patterns in OS-specific files compile as valid regex."""
+        import re
+        for path in os_toml_files:
+            with open(path, "rb") as f:
+                config = tomllib.load(f)
+            for category in ("deny", "ask", "allow"):
+                for section_name, section in config.get(category, {}).items():
+                    for pattern in section.get("patterns", []):
+                        try:
+                            re.compile(pattern)
+                        except re.error as e:
+                            pytest.fail(
+                                f"{path.name}: {category}.{section_name}: "
+                                f"invalid regex '{pattern}': {e}"
+                            )
 
 
 if __name__ == "__main__":

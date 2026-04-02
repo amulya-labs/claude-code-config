@@ -1,0 +1,151 @@
+# macOS-specific bash command validation patterns
+# Merged on top of bash-patterns.toml when running on macOS (sys.platform == 'darwin')
+#
+# Source: https://github.com/amulya-labs/ai-dev-foundry
+# License: MIT (https://opensource.org/licenses/MIT)
+#
+# These patterns extend the universal base patterns with macOS-specific commands.
+# Sections with the same name as base sections have their patterns APPENDED.
+# New sections are added as-is.
+
+# =============================================================================
+# DENY PATTERNS - macOS-specific catastrophic operations
+# =============================================================================
+
+[deny.system_shutdown]
+description = "macOS shutdown/reboot (extends base)"
+patterns = [
+    "^osascript -e.*shut down",
+    "^osascript -e.*restart",
+]
+
+# =============================================================================
+# ASK PATTERNS - macOS-specific risky operations
+# =============================================================================
+
+[ask.service_management]
+description = "macOS service management (extends base)"
+patterns = [
+    "^launchctl (load|unload|bootstrap|bootout|enable|disable|kickstart|kill)",
+]
+
+[ask.firewall]
+description = "macOS firewall configuration (extends base)"
+patterns = [
+    "^pfctl ",
+    "^/usr/libexec/ApplicationFirewall/socketfilterfw",
+]
+
+[ask.user_management]
+description = "macOS user management (extends base)"
+patterns = [
+    "^dscl \\. -(create|delete|merge|change|append)",
+    "^sysadminctl ",
+    "^dseditgroup ",
+]
+
+[ask.package_manager_install]
+description = "macOS package installation (extends base)"
+patterns = [
+    "^brew cask install",
+    "^port install",
+    "^mas install",
+]
+
+[ask.macos_system_config]
+description = "macOS system configuration changes"
+patterns = [
+    "^defaults write",
+    "^defaults delete",
+    "^scutil --set",
+    "^networksetup -set",
+    "^tmutil (disable|enable|startbackup|stopbackup|delete)",
+    "^spctl --master-disable",
+    "^csrutil ",
+    "^fdesetup ",
+]
+
+[ask.macos_disk_management]
+description = "macOS disk management"
+patterns = [
+    "^diskutil (erase|partition|mount|unmount|rename|resize|apfs)",
+    "^hdiutil (create|attach|detach|convert|resize)",
+]
+
+# =============================================================================
+# ALLOW PATTERNS - macOS-specific safe operations
+# =============================================================================
+
+[allow.system_readonly]
+description = "macOS read-only system inspection (extends base)"
+patterns = [
+    "^system_profiler",
+    "^sw_vers",
+    "^sysctl -[an]",
+    "^sysctl (kern|hw|machdep|net)\\.",
+    "^ioreg ",
+    "^pmset -g",
+    "^vm_stat",
+    "^launchctl list",
+    "^launchctl print ",
+    "^defaults read",
+    "^scutil --get",
+    "^scutil --dns",
+    "^scutil --proxy",
+    "^networksetup -(list|get|show)",
+    "^mdutil -s ",
+    "^mdfind ",
+    "^mdls ",
+]
+
+[allow.package_info]
+description = "macOS package manager queries (extends base)"
+patterns = [
+    "^brew list",
+    "^brew info",
+    "^brew search",
+    "^brew outdated",
+    "^brew deps",
+    "^brew config",
+    "^brew doctor",
+    "^port installed",
+    "^port info",
+    "^port search",
+    "^mas list",
+    "^mas search",
+    "^mas outdated",
+    "^pkgutil --pkgs",
+    "^pkgutil --info",
+    "^pkgutil --files",
+]
+
+[allow.macos_hardware_info]
+description = "macOS hardware and system inspection (read-only)"
+patterns = [
+    "^diskutil list",
+    "^diskutil info",
+    "^hdiutil info",
+    "^tmutil (listbackups|latestbackup|destinationinfo|status|compare)",
+    "^airport -s",
+    "^airport -I",
+    "^/System/Library/PrivateFrameworks/Apple80211\\.framework/.*/airport",
+    "^codesign -dv",
+    "^codesign --verify",
+    "^spctl --assess",
+    "^xcode-select -p",
+    "^xcode-select --print-path",
+    "^xcodebuild -version",
+    "^xcrun --find",
+    "^xcrun --show-sdk",
+]
+
+[allow.macos_open_url]
+description = "macOS open command for URLs and safe targets"
+patterns = [
+    # open for directories and specific safe apps
+    "^open \\.$",
+    "^open \\.\\.$",
+    "^open ~/",
+    "^open -a (Terminal|Safari|Finder|Console|\"Activity Monitor\")",
+    "^open -R ",
+]

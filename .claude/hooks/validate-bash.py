@@ -50,6 +50,48 @@ def load_config(config_path: str) -> dict:
         sys.exit(1)
 
 
+def detect_os() -> str:
+    """Detect OS platform and return the suffix for OS-specific config files.
+
+    Returns 'linux', 'darwin', or 'windows'. Falls back to sys.platform value.
+    """
+    platform = sys.platform
+    if platform.startswith("linux"):
+        return "linux"
+    elif platform == "darwin":
+        return "darwin"
+    elif platform in ("win32", "cygwin", "msys"):
+        return "windows"
+    return platform
+
+
+def merge_os_config(base: dict, overlay: dict) -> dict:
+    """Merge OS-specific config into base config with additive-append semantics.
+
+    For each category (deny/ask/allow), OS patterns are appended to matching
+    base sections. New sections from the overlay are added as-is.
+    Base patterns are never removed or replaced.
+    """
+    for category in ("deny", "ask", "allow"):
+        overlay_sections = overlay.get(category, {})
+        if not overlay_sections:
+            continue
+        base.setdefault(category, {})
+        for section_name, section_data in overlay_sections.items():
+            if not isinstance(section_data, dict) or "patterns" not in section_data:
+                continue
+            if section_name in base[category] and isinstance(base[category][section_name], dict):
+                # Append OS patterns after base patterns
+                base[category][section_name]["patterns"] = (
+                    base[category][section_name].get("patterns", [])
+                    + section_data["patterns"]
+                )
+            else:
+                # New section from OS overlay
+                base[category][section_name] = section_data
+    return base
+
+
 def compile_patterns(config: dict, category: str) -> list[CompiledPattern]:
     """Extract and compile patterns for a category (deny/ask/allow).
 
@@ -729,6 +771,15 @@ def main():
 
     config_path = sys.argv[1]
     config = load_config(config_path)
+
+    # Load and merge OS-specific patterns (e.g. bash-patterns.linux.toml)
+    os_suffix = detect_os()
+    config_dir = os.path.dirname(config_path)
+    config_base = os.path.splitext(os.path.basename(config_path))[0]
+    os_config_path = os.path.join(config_dir, f"{config_base}.{os_suffix}.toml")
+    if os.path.isfile(os_config_path):
+        os_config = load_config(os_config_path)
+        config = merge_os_config(config, os_config)
 
     # Read JSON input first — cwd is needed for dynamic pattern injection
     try:

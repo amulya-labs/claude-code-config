@@ -2645,3 +2645,418 @@ description = "truncate /var/tmp/ file is allowed"
 [[allow]]
 command = "truncate /tmp/output.txt"
 description = "truncate /tmp/ file (no size flag) is allowed"
+
+# =============================================================================
+# OS-SPECIFIC TEST CASES
+# Cases with os = "linux"|"darwin"|"windows" only run on that platform.
+# =============================================================================
+
+# ── Linux-specific ───────────────────────────────────────────────────────────
+
+[[allow]]
+command = "systemd-analyze blame"
+description = "systemd-analyze blame (Linux read-only)"
+os = "linux"
+
+[[allow]]
+command = "hostnamectl status"
+description = "hostnamectl status (Linux read-only)"
+os = "linux"
+
+[[allow]]
+command = "resolvectl status"
+description = "resolvectl status (Linux read-only)"
+os = "linux"
+
+[[allow]]
+command = "networkctl list"
+description = "networkctl list (Linux read-only)"
+os = "linux"
+
+[[allow]]
+command = "lshw -short"
+description = "lshw hardware listing (Linux read-only)"
+os = "linux"
+
+[[allow]]
+command = "cat /proc/cpuinfo"
+description = "cat /proc/cpuinfo (Linux read-only)"
+os = "linux"
+
+[[allow]]
+command = "cat /etc/os-release"
+description = "cat /etc/os-release (Linux read-only)"
+os = "linux"
+
+[[allow]]
+command = "lsmod"
+description = "lsmod kernel modules (Linux read-only)"
+os = "linux"
+
+[[allow]]
+command = "modinfo ext4"
+description = "modinfo kernel module info (Linux read-only)"
+os = "linux"
+
+[[allow]]
+command = "aa-status"
+description = "AppArmor status (Linux read-only)"
+os = "linux"
+
+[[allow]]
+command = "getenforce"
+description = "SELinux status (Linux read-only)"
+os = "linux"
+
+[[allow]]
+command = "lastlog"
+description = "lastlog (Linux read-only)"
+os = "linux"
+
+[[ask]]
+command = "ip link set eth0 down"
+description = "ip link set (Linux network config, risky)"
+os = "linux"
+
+[[ask]]
+command = "ip addr add 10.0.0.1/24 dev eth0"
+description = "ip addr add (Linux network config, risky)"
+os = "linux"
+
+[[ask]]
+command = "nmcli connection modify eth0 ipv4.dns 8.8.8.8"
+description = "nmcli connection modify (Linux network config, risky)"
+os = "linux"
+
+[[ask]]
+command = "mount /dev/sda1 /mnt"
+description = "mount device (Linux disk management, risky)"
+os = "linux"
+
+[[ask]]
+command = "cryptsetup luksOpen /dev/sda2 encrypted"
+description = "cryptsetup (Linux disk management, risky)"
+os = "linux"
+
+[[ask]]
+command = "aa-enforce /etc/apparmor.d/usr.bin.firefox"
+description = "aa-enforce (Linux MAC policy change, risky)"
+os = "linux"
+
+# ── macOS-specific ───────────────────────────────────────────────────────────
+
+[[allow]]
+command = "system_profiler SPHardwareDataType"
+description = "system_profiler hardware (macOS read-only)"
+os = "darwin"
+
+[[allow]]
+command = "sw_vers"
+description = "sw_vers version info (macOS read-only)"
+os = "darwin"
+
+[[allow]]
+command = "sysctl -a"
+description = "sysctl all values (macOS read-only)"
+os = "darwin"
+
+[[allow]]
+command = "defaults read com.apple.finder"
+description = "defaults read (macOS read-only)"
+os = "darwin"
+
+[[allow]]
+command = "launchctl list"
+description = "launchctl list services (macOS read-only)"
+os = "darwin"
+
+[[allow]]
+command = "scutil --get ComputerName"
+description = "scutil get (macOS read-only)"
+os = "darwin"
+
+[[allow]]
+command = "networksetup -listallhardwareports"
+description = "networksetup list (macOS read-only)"
+os = "darwin"
+
+[[allow]]
+command = "diskutil list"
+description = "diskutil list (macOS read-only)"
+os = "darwin"
+
+[[allow]]
+command = "diskutil info disk0"
+description = "diskutil info (macOS read-only)"
+os = "darwin"
+
+[[allow]]
+command = "brew list"
+description = "brew list (macOS read-only)"
+os = "darwin"
+
+[[allow]]
+command = "brew info node"
+description = "brew info (macOS read-only)"
+os = "darwin"
+
+[[allow]]
+command = "brew doctor"
+description = "brew doctor (macOS read-only)"
+os = "darwin"
+
+[[allow]]
+command = "pkgutil --pkgs"
+description = "pkgutil list packages (macOS read-only)"
+os = "darwin"
+
+[[allow]]
+command = "xcode-select -p"
+description = "xcode-select print path (macOS read-only)"
+os = "darwin"
+
+[[allow]]
+command = "xcodebuild -version"
+description = "xcodebuild version (macOS read-only)"
+os = "darwin"
+
+[[allow]]
+command = "pmset -g"
+description = "pmset power info (macOS read-only)"
+os = "darwin"
+
+[[allow]]
+command = "tmutil latestbackup"
+description = "tmutil latest backup (macOS read-only)"
+os = "darwin"
+
+[[allow]]
+command = "open ."
+description = "open current dir in Finder (macOS)"
+os = "darwin"
+
+[[allow]]
+command = "open -a Terminal"
+description = "open Terminal.app (macOS)"
+os = "darwin"
+
+[[ask]]
+command = "defaults write com.apple.dock autohide -bool true"
+description = "defaults write (macOS system config, risky)"
+os = "darwin"
+
+[[ask]]
+command = "defaults delete com.apple.dock autohide"
+description = "defaults delete (macOS system config, risky)"
+os = "darwin"
+
+[[ask]]
+command = "launchctl unload ~/Library/LaunchAgents/com.example.plist"
+description = "launchctl unload (macOS service management, risky)"
+os = "darwin"
+
+[[ask]]
+command = "scutil --set HostName myhost"
+description = "scutil set (macOS system config, risky)"
+os = "darwin"
+
+[[ask]]
+command = "tmutil disable"
+description = "tmutil disable backups (macOS, risky)"
+os = "darwin"
+
+[[ask]]
+command = "diskutil erase disk0"
+description = "diskutil erase (macOS disk management, risky)"
+os = "darwin"
+
+[[ask]]
+command = "pfctl -f /etc/pf.conf"
+description = "pfctl firewall config (macOS, risky)"
+os = "darwin"
+
+[[ask]]
+command = "dscl . -create /Users/newuser"
+description = "dscl create user (macOS user management, risky)"
+os = "darwin"
+
+[[ask]]
+command = "brew cask install firefox"
+description = "brew cask install (macOS package install, risky)"
+os = "darwin"
+
+# ── Windows-specific (Git Bash) ─────────────────────────────────────────────
+
+[[allow]]
+command = "systeminfo"
+description = "systeminfo (Windows read-only)"
+os = "windows"
+
+[[allow]]
+command = "tasklist"
+description = "tasklist (Windows read-only)"
+os = "windows"
+
+[[allow]]
+command = "ipconfig"
+description = "ipconfig (Windows read-only)"
+os = "windows"
+
+[[allow]]
+command = "winget list"
+description = "winget list (Windows read-only)"
+os = "windows"
+
+[[allow]]
+command = "winget search vscode"
+description = "winget search (Windows read-only)"
+os = "windows"
+
+[[allow]]
+command = "choco list"
+description = "choco list (Windows read-only)"
+os = "windows"
+
+[[allow]]
+command = "scoop list"
+description = "scoop list (Windows read-only)"
+os = "windows"
+
+[[allow]]
+command = "sc.exe query"
+description = "sc.exe query (Windows read-only)"
+os = "windows"
+
+[[allow]]
+command = "wmic os get caption"
+description = "wmic OS info (Windows read-only)"
+os = "windows"
+
+[[allow]]
+command = "dotnet build"
+description = "dotnet build (Windows dev tool)"
+os = "windows"
+
+[[allow]]
+command = "dotnet test"
+description = "dotnet test (Windows dev tool)"
+os = "windows"
+
+[[allow]]
+command = "certutil -hashfile file.exe SHA256"
+description = "certutil hash file (Windows read-only)"
+os = "windows"
+
+[[allow]]
+command = "wsl --list"
+description = "wsl list (Windows read-only)"
+os = "windows"
+
+[[allow]]
+command = "start https://example.com"
+description = "start URL (Windows URL opener)"
+os = "windows"
+
+[[ask]]
+command = "sc.exe stop MyService"
+description = "sc.exe stop service (Windows, risky)"
+os = "windows"
+
+[[ask]]
+command = "net stop MyService"
+description = "net stop service (Windows, risky)"
+os = "windows"
+
+[[ask]]
+command = "reg add HKCU\\Software\\Test /v key /d value"
+description = "reg add (Windows registry, risky)"
+os = "windows"
+
+[[ask]]
+command = "winget install vscode"
+description = "winget install (Windows package install, risky)"
+os = "windows"
+
+[[ask]]
+command = "choco install nodejs"
+description = "choco install (Windows package install, risky)"
+os = "windows"
+
+[[ask]]
+command = "netsh advfirewall firewall add rule name=test"
+description = "netsh firewall rule (Windows, risky)"
+os = "windows"
+
+[[ask]]
+command = "nuget install Newtonsoft.Json"
+description = "nuget install (Windows package install, risky)"
+os = "windows"
+
+[[deny]]
+command = "reg delete HKLM\\SYSTEM\\test"
+description = "reg delete HKLM (Windows destructive)"
+os = "windows"
+
+# ── macOS deny tests ────────────────────────────────────────────────────────
+
+[[deny]]
+command = "osascript -e 'tell app \"System Events\" to shut down'"
+description = "osascript shut down (macOS destructive)"
+os = "darwin"
+
+[[deny]]
+command = "osascript -e 'tell app \"System Events\" to restart'"
+description = "osascript restart (macOS destructive)"
+os = "darwin"
+
+# ── Linux additional allow tests ─────────────────────────────────────────────
+
+[[allow]]
+command = "pidof nginx"
+description = "pidof process lookup (Linux read-only)"
+os = "linux"
+
+[[allow]]
+command = "taskset -p 1234"
+description = "taskset query CPU affinity (Linux read-only)"
+os = "linux"
+
+[[allow]]
+command = "ionice -p 1234"
+description = "ionice query IO priority (Linux read-only)"
+os = "linux"
+
+[[allow]]
+command = "numactl --show"
+description = "numactl show NUMA policy (Linux read-only)"
+os = "linux"
+
+[[allow]]
+command = "numactl --hardware"
+description = "numactl hardware info (Linux read-only)"
+os = "linux"
+
+[[allow]]
+command = "sestatus"
+description = "SELinux detailed status (Linux read-only)"
+os = "linux"
+
+[[allow]]
+command = "getsebool httpd_can_network_connect"
+description = "getsebool query (Linux read-only)"
+os = "linux"
+
+[[allow]]
+command = "ausearch -m avc -ts recent"
+description = "ausearch audit log query (Linux read-only)"
+os = "linux"
+
+[[allow]]
+command = "aureport --summary"
+description = "aureport audit summary (Linux read-only)"
+os = "linux"
+
+[[allow]]
+command = "faillog -a"
+description = "faillog all users (Linux read-only)"
+os = "linux"

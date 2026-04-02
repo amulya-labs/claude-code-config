@@ -1,0 +1,130 @@
+# Windows-specific bash command validation patterns (Git Bash / MSYS2 / Cygwin)
+# Merged on top of bash-patterns.toml when running on Windows (sys.platform == 'win32')
+#
+# Source: https://github.com/amulya-labs/ai-dev-foundry
+# License: MIT (https://opensource.org/licenses/MIT)
+#
+# These patterns cover Windows commands invoked from Git Bash, MSYS2, or Cygwin.
+# NOTE: WSL reports sys.platform as 'linux', so WSL users get Linux patterns.
+# Native PowerShell validation is out of scope (the hook is a Bash script).
+
+# =============================================================================
+# DENY PATTERNS - Windows-specific catastrophic operations
+# =============================================================================
+
+[deny.windows_destructive]
+description = "Windows destructive system commands"
+patterns = [
+    "^cmd\\.exe.*/[cC].*format ",
+    "^powershell.*Remove-Item.*-Recurse.*\\$env:",
+    "^powershell.*Remove-Item.*-Recurse.*C:\\\\Windows",
+    "^reg delete.*HKLM",
+]
+
+# =============================================================================
+# ASK PATTERNS - Windows-specific risky operations
+# =============================================================================
+
+[ask.windows_service_management]
+description = "Windows service management"
+patterns = [
+    "^sc\\.exe (start|stop|delete|create|config)",
+    "^net (start|stop) ",
+    "^powershell.*-Service",
+    "^cmd\\.exe.*/[cC].*sc (start|stop|delete|create)",
+]
+
+[ask.windows_system_config]
+description = "Windows system configuration"
+patterns = [
+    "^reg (add|delete|import)",
+    "^netsh ",
+    "^bcdedit",
+    "^schtasks /(create|delete|change|run|end)",
+    "^powershell.*Set-ExecutionPolicy",
+    "^powershell.*New-NetFirewallRule",
+    "^icacls .* /grant",
+    "^icacls .* /deny",
+]
+
+[ask.windows_package_install]
+description = "Windows package installation"
+patterns = [
+    "^winget install",
+    "^choco install",
+    "^scoop install",
+    "^msiexec ",
+    "^nuget install",
+]
+
+# =============================================================================
+# ALLOW PATTERNS - Windows-specific safe operations
+# =============================================================================
+
+[allow.windows_system_info]
+description = "Windows system information (read-only)"
+patterns = [
+    "^systeminfo",
+    "^wmic (os|cpu|memorychip|diskdrive|bios) (get|list)",
+    "^tasklist",
+    "^sc\\.exe query",
+    "^sc\\.exe queryex",
+    "^net session 2>",
+    "^ipconfig",
+    "^hostname\\.exe",
+    "^ver$",
+    "^powershell.*Get-ComputerInfo",
+    "^powershell.*Get-Process",
+    "^powershell.*Get-Service",
+    "^powershell.*Get-NetAdapter",
+    "^powershell.*Get-NetIPConfiguration",
+    "^powershell.*\\$PSVersionTable",
+]
+
+[allow.windows_package_info]
+description = "Windows package manager queries (read-only)"
+patterns = [
+    "^winget list",
+    "^winget search",
+    "^winget show",
+    "^choco list",
+    "^choco search",
+    "^choco info",
+    "^scoop list",
+    "^scoop search",
+    "^scoop info",
+    "^scoop status",
+]
+
+[allow.windows_clipboard]
+description = "Windows clipboard utilities"
+patterns = [
+    "^clip\\.exe",
+    "^powershell.*Get-Clipboard",
+    "^powershell.*Set-Clipboard",
+]
+
+[allow.windows_utilities]
+description = "Windows common utilities"
+patterns = [
+    "^cmd\\.exe /[cC] (dir|type|echo|set|where|findstr)",
+    "^where\\.exe ",
+    "^certutil -hashfile",
+    "^powershell.*Get-FileHash",
+    "^powershell.*Get-Content",
+    "^powershell.*Test-Path",
+    "^powershell.*Get-ChildItem",
+    "^start https?://",
+    "^explorer\\.exe ",
+    "^wsl --list",
+    "^wsl -l",
+    "^wsl --status",
+]
+
+[allow.windows_dev_tools]
+description = "Windows development tools"
+patterns = [
+    "^dotnet (build|test|run|publish|restore|clean|new|list|tool)",
+    "^msbuild ",
+    "^nuget (restore|list|search)",
+]

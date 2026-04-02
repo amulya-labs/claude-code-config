@@ -61,7 +61,10 @@ shellcheck .claude/hooks/*.sh && \
 .claude/hooks/           -- PreToolUse/PostToolUse bash command validation hooks
   validate-bash.sh       -- Shell entry point: reads stdin JSON, calls validate-bash.py, logs
   validate-bash.py       -- Python validator: splits chains, cleans segments, matches patterns
-  bash-patterns.toml     -- All regex patterns: [deny.*], [ask.*], [allow.*]
+  bash-patterns.toml     -- Universal regex patterns: [deny.*], [ask.*], [allow.*]
+  bash-patterns.linux.toml  -- Linux-specific pattern overlay (merged at runtime)
+  bash-patterns.darwin.toml -- macOS-specific pattern overlay (merged at runtime)
+  bash-patterns.windows.toml -- Windows/Git Bash pattern overlay (merged at runtime)
   post-bash.sh           -- PostToolUse hook: logs ASK->APPROVED outcomes
 .claude/settings.json    -- Hook wiring + permission allow/deny lists (shared/committed)
 .claude/settings.local.json -- Local-only permission overrides (committed but for local use)
@@ -85,13 +88,16 @@ tests/                   -- All tests: bash-test-cases.toml, test_validate_bash.
 - Must be generalized (no project-specific references), focused (one domain per agent)
 
 ### Hook Patterns
-- Edit `.claude/hooks/bash-patterns.toml`
+- Edit `.claude/hooks/bash-patterns.toml` for universal (cross-platform) patterns
+- Edit `.claude/hooks/bash-patterns.{linux,darwin,windows}.toml` for OS-specific patterns
+- **OS-aware layering**: the validator auto-detects the OS via `sys.platform` and merges the matching OS file on top of the base file. OS patterns are **appended** to matching base sections (never replace). New sections from OS files are added as-is.
 - Categories: `[deny.*]` (always block), `[ask.*]` (prompt user), `[allow.*]` (auto-approve)
 - Evaluation order: deny -> ask -> allow -> ask (default if no match)
 - **Lean liberal**: if a command is safe, add it to allow; reserve ask for genuinely risky ops
 - When a chain of commands (`cmd1 && cmd2 && cmd3`) is composed entirely of individually safe commands, the chain should be auto-approved -- never prompt just because commands are chained together
 - The goal is minimal friction: agents should rarely be interrupted for routine dev commands (build tools, linters, test runners, package managers, git operations, file manipulation on relative paths)
 - For every new pattern, add corresponding test cases to `tests/bash-test-cases.toml`
+- **Where to add patterns**: cross-platform commands go in `bash-patterns.toml`; OS-specific commands (e.g. `systemd-analyze` for Linux, `defaults write` for macOS) go in the matching OS file
 
 ### Hook Logic
 - Edit `.claude/hooks/validate-bash.py` for validator behavior
@@ -101,7 +107,8 @@ tests/                   -- All tests: bash-test-cases.toml, test_validate_bash.
 
 ### Test Cases
 - Add entries to `tests/bash-test-cases.toml` as `[[allow]]`, `[[ask]]`, or `[[deny]]`
-- Each entry: `command` (string) and `description` (string)
+- Each entry: `command` (string), `description` (string), and optional `os` (string)
+- The `os` field filters tests by platform: `"linux"`, `"darwin"`, or `"windows"`. Omit for cross-platform tests.
 - Tests are data-driven: both `test_validate_bash.py` and `test-validate-bash.sh` read from this file
 
 ### Attribution
@@ -130,7 +137,8 @@ tests/                   -- All tests: bash-test-cases.toml, test_validate_bash.
 |---------|-------------|-----|
 | `Error: Python 3.11+ required` | Python < 3.11 without `tomli` | `pip install tomli` or upgrade Python |
 | Hook returns empty output | Empty or malformed JSON input | Check structure: `{"tool_input":{"command":"..."}}` |
-| Safe command triggers ASK | Command not in allow patterns, or ask pattern matches first | Check pattern order in `bash-patterns.toml`; add allow pattern; add test case |
+| Safe command triggers ASK | Command not in allow patterns, or ask pattern matches first | Check pattern order in `bash-patterns.toml` or OS-specific file; add allow pattern; add test case |
+| OS-specific command triggers ASK | Pattern missing from OS overlay file | Add pattern to `bash-patterns.{linux,darwin,windows}.toml`; add test case with `os` field |
 | Safe chain triggers ASK | One segment in the chain is unrecognized | The validator checks each segment independently; add an allow pattern for the unrecognized segment |
 | CI fails: "missing attribution" | New/edited script missing header comments | Add `Source:` and `License:` comments (see Attribution above) |
 | CI fails: agent frontmatter | Missing `name`/`description`/`source`/`license` or invalid YAML | Check frontmatter between `---` delimiters |

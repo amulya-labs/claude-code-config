@@ -97,6 +97,7 @@ run_category_tests() {
     echo "Testing: $category (expecting: $expected)"
 
     # Use Python to parse TOML and output test cases as JSON
+    # Filters out cases whose 'os' field doesn't match the current platform
     local tests
     tests=$(python3 -c "
 import sys
@@ -108,9 +109,23 @@ except ImportError:
 with open('$TEST_CASES', 'rb') as f:
     data = tomllib.load(f)
 
+# Detect OS (same logic as validate-bash.py)
+platform = sys.platform
+if platform.startswith('linux'):
+    current_os = 'linux'
+elif platform == 'darwin':
+    current_os = 'darwin'
+elif platform in ('win32', 'cygwin', 'msys'):
+    current_os = 'windows'
+else:
+    current_os = platform
+
 import json
 cases = data.get('$category', [])
 for case in cases:
+    case_os = case.get('os')
+    if case_os is not None and case_os != current_os:
+        continue
     print(json.dumps(case))
 " 2>/dev/null)
 
