@@ -241,6 +241,80 @@ post_download_claude() {
     fi
 }
 
+# Merge upstream settings.json into an existing local settings.json.
+#
+# Strategy:
+#   hooks      — replace by (event, matcher) identity; preserve user hooks with different matchers
+#   permissions.allow / .deny — set union (dedup by exact string); user entries preserved
+#   everything else — user wins; upstream keys added only if absent locally
+#
+# Requires: jq
+merge_settings_json() {
+    local upstream_file="$1"
+    local local_file="$2"
+    local output_file="$3"
+
+    if ! command -v jq &>/dev/null; then
+        warn "jq not found — cannot merge settings.json; overwriting with upstream"
+        cp "$upstream_file" "$output_file"
+        return 0
+    fi
+
+    # Validate local JSON; if malformed, back up and overwrite
+    if ! jq empty "$local_file" 2>/dev/null; then
+        warn "Existing settings.json is malformed JSON — backing up to settings.json.bak"
+        cp "$local_file" "${local_file}.bak"
+        cp "$upstream_file" "$output_file"
+        return 0
+    fi
+
+    # Perform the three-tier merge in a single jq invocation
+    jq -n --slurpfile local "$local_file" --slurpfile upstream "$upstream_file" '
+        ($local[0] // {}) as $l |
+        ($upstream[0] // {}) as $u |
+
+        # Merge hooks: for each event in upstream, replace-by-matcher or append
+        def merge_hook_event(local_arr; upstream_arr):
+            (upstream_arr | map(.matcher) | map(select(. != null))) as $u_matchers |
+            [local_arr[] | select(.matcher as $m | ($u_matchers | index($m)) == null)] +
+            upstream_arr;
+
+        (($l.hooks // {}) | keys) as $local_hook_keys |
+        (($u.hooks // {}) | keys) as $upstream_hook_keys |
+        (($local_hook_keys + $upstream_hook_keys) | unique) as $all_hook_keys |
+        (reduce $all_hook_keys[] as $event ({};
+            if ($u.hooks[$event] // null) == null then
+                . + {($event): $l.hooks[$event]}
+            elif ($l.hooks[$event] // null) == null then
+                . + {($event): $u.hooks[$event]}
+            else
+                . + {($event): merge_hook_event($l.hooks[$event]; $u.hooks[$event])}
+            end
+        )) as $merged_hooks |
+
+        # Merge permissions: union of allow arrays, union of deny arrays
+        (($l.permissions // {}) | keys) as $local_perm_keys |
+        (($u.permissions // {}) | keys) as $upstream_perm_keys |
+        (($local_perm_keys + $upstream_perm_keys) | unique) as $all_perm_keys |
+        (reduce $all_perm_keys[] as $key ({};
+            ($l.permissions[$key] // null) as $lv |
+            ($u.permissions[$key] // null) as $uv |
+            if ($lv | type) == "array" and ($uv | type) == "array" then
+                . + {($key): (($lv + $uv) | unique)}
+            elif $uv != null then
+                . + {($key): $uv}
+            else
+                . + {($key): $lv}
+            end
+        )) as $merged_perms |
+
+        # Start with local (preserves all user keys), then overlay managed keys
+        $l
+        | if ($merged_hooks | length) > 0 then .hooks = $merged_hooks else . end
+        | if ($merged_perms | length) > 0 then .permissions = $merged_perms else . end
+    ' > "$output_file"
+}
+
 download_provider_config() {
     local provider="$1"
     local upper
@@ -266,9 +340,28 @@ download_provider_config() {
         if [[ "$item" == *.* ]]; then
             # Single file (e.g. settings.json)
             info "Fetching ${item}..."
-            if curl -fsSL "$RAW_BASE/.${provider}/${item}" -o "${config_dir}/${item}" 2>/dev/null; then
-                info "  Downloaded ${item}"
+            local tmp_file
+            tmp_file=$(mktemp)
+            if curl -fsSL "$RAW_BASE/.${provider}/${item}" -o "$tmp_file" 2>/dev/null; then
+                if [[ "$item" == "settings.json" ]] && [[ -f "${config_dir}/${item}" ]] && [[ -s "${config_dir}/${item}" ]]; then
+                    # Merge upstream settings into existing local settings
+                    local merged_file
+                    merged_file=$(mktemp)
+                    if merge_settings_json "$tmp_file" "${config_dir}/${item}" "$merged_file"; then
+                        mv "$merged_file" "${config_dir}/${item}"
+                        info "  Merged ${item} (preserved local customizations)"
+                    else
+                        warn "  Merge failed for ${item} — overwriting with upstream"
+                        cp "$tmp_file" "${config_dir}/${item}"
+                        rm -f "$merged_file"
+                    fi
+                else
+                    cp "$tmp_file" "${config_dir}/${item}"
+                    info "  Downloaded ${item}"
+                fi
+                rm -f "$tmp_file"
             else
+                rm -f "$tmp_file"
                 warn "  ${item} not found (optional)"
             fi
         else

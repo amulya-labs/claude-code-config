@@ -511,6 +511,202 @@ fi
 
 echo
 
+# ── merge_settings_json function ────────────────────────────────────
+
+echo "=== merge_settings_json function ==="
+
+if grep -q 'merge_settings_json()' "$MANAGE_SCRIPT"; then
+    assert "merge_settings_json() function exists" "pass"
+else
+    assert "merge_settings_json() function exists" "fail"
+fi
+
+# Functional merge tests (require jq)
+if command -v jq &>/dev/null; then
+
+    # Source the function for testing (extract just the function)
+    MERGE_FN=$(sed -n '/^merge_settings_json()/,/^}/p' "$MANAGE_SCRIPT")
+
+    # Helper: run merge and return merged JSON
+    run_merge() {
+        local upstream_file="$1" local_file="$2"
+        local output_file
+        output_file=$(mktemp)
+        # Source the function in a subshell with stubs for info/warn
+        (
+            info() { :; }
+            warn() { :; }
+            eval "$MERGE_FN"
+            merge_settings_json "$upstream_file" "$local_file" "$output_file"
+        )
+        cat "$output_file"
+        rm -f "$output_file"
+    }
+
+    # Test 1: User env/model preserved after merge
+    _up=$(mktemp); _lo=$(mktemp)
+    cat > "$_up" << 'UPSTREAM'
+{
+  "hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "validate.sh"}]}]},
+  "permissions": {"allow": ["Read(/tmp/*)", "WebSearch"], "deny": []}
+}
+UPSTREAM
+    cat > "$_lo" << 'LOCAL'
+{
+  "hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "old.sh"}]}]},
+  "permissions": {"allow": ["Read(/tmp/*)"], "deny": []},
+  "env": {"MY_VAR": "hello"},
+  "model": "opus"
+}
+LOCAL
+    _merged=$(run_merge "$_up" "$_lo")
+    if echo "$_merged" | jq -e '.env.MY_VAR == "hello" and .model == "opus"' &>/dev/null; then
+        assert "Merge preserves user env and model" "pass"
+    else
+        assert "Merge preserves user env and model" "fail" "Got: $_merged"
+    fi
+    rm -f "$_up" "$_lo"
+
+    # Test 2: Upstream hook replaces local hook with same matcher
+    _up=$(mktemp); _lo=$(mktemp)
+    cat > "$_up" << 'UPSTREAM'
+{
+  "hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "new-validate.sh"}]}]}
+}
+UPSTREAM
+    cat > "$_lo" << 'LOCAL'
+{
+  "hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "old-validate.sh"}]}]}
+}
+LOCAL
+    _merged=$(run_merge "$_up" "$_lo")
+    if echo "$_merged" | jq -e '.hooks.PreToolUse | length == 1 and .[0].hooks[0].command == "new-validate.sh"' &>/dev/null; then
+        assert "Merge replaces hook with same matcher" "pass"
+    else
+        assert "Merge replaces hook with same matcher" "fail" "Got: $_merged"
+    fi
+    rm -f "$_up" "$_lo"
+
+    # Test 3: User hooks with different matcher are preserved
+    _up=$(mktemp); _lo=$(mktemp)
+    cat > "$_up" << 'UPSTREAM'
+{
+  "hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "validate.sh"}]}]}
+}
+UPSTREAM
+    cat > "$_lo" << 'LOCAL'
+{
+  "hooks": {
+    "PreToolUse": [
+      {"matcher": "Bash", "hooks": [{"type": "command", "command": "old.sh"}]},
+      {"matcher": "Write", "hooks": [{"type": "command", "command": "format.sh"}]}
+    ]
+  }
+}
+LOCAL
+    _merged=$(run_merge "$_up" "$_lo")
+    if echo "$_merged" | jq -e '.hooks.PreToolUse | length == 2' &>/dev/null &&
+       echo "$_merged" | jq -e '.hooks.PreToolUse[] | select(.matcher == "Write") | .hooks[0].command == "format.sh"' &>/dev/null &&
+       echo "$_merged" | jq -e '.hooks.PreToolUse[] | select(.matcher == "Bash") | .hooks[0].command == "validate.sh"' &>/dev/null; then
+        assert "Merge preserves user hooks with different matcher" "pass"
+    else
+        assert "Merge preserves user hooks with different matcher" "fail" "Got: $_merged"
+    fi
+    rm -f "$_up" "$_lo"
+
+    # Test 4: Permission arrays are unioned (deduped)
+    _up=$(mktemp); _lo=$(mktemp)
+    cat > "$_up" << 'UPSTREAM'
+{
+  "permissions": {"allow": ["Read(/tmp/*)", "WebSearch", "WebFetch"]}
+}
+UPSTREAM
+    cat > "$_lo" << 'LOCAL'
+{
+  "permissions": {"allow": ["Read(/tmp/*)", "Bash(npm:*)"]}
+}
+LOCAL
+    _merged=$(run_merge "$_up" "$_lo")
+    _count=$(echo "$_merged" | jq '.permissions.allow | length')
+    if [[ "$_count" == "4" ]]; then
+        assert "Merge unions permission arrays without duplicates" "pass"
+    else
+        assert "Merge unions permission arrays without duplicates" "fail" "Expected 4 entries, got: $_count"
+    fi
+    rm -f "$_up" "$_lo"
+
+    # Test 5: User-only hook events are preserved
+    _up=$(mktemp); _lo=$(mktemp)
+    cat > "$_up" << 'UPSTREAM'
+{
+  "hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "validate.sh"}]}]}
+}
+UPSTREAM
+    cat > "$_lo" << 'LOCAL'
+{
+  "hooks": {
+    "PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "old.sh"}]}],
+    "Stop": [{"hooks": [{"type": "command", "command": "cleanup.sh"}]}]
+  }
+}
+LOCAL
+    _merged=$(run_merge "$_up" "$_lo")
+    if echo "$_merged" | jq -e '.hooks.Stop[0].hooks[0].command == "cleanup.sh"' &>/dev/null; then
+        assert "Merge preserves user-only hook events" "pass"
+    else
+        assert "Merge preserves user-only hook events" "fail" "Got: $_merged"
+    fi
+    rm -f "$_up" "$_lo"
+
+    # Test 6: Malformed local JSON triggers backup and overwrite
+    _up=$(mktemp); _lo=$(mktemp); _out=$(mktemp)
+    cat > "$_up" << 'UPSTREAM'
+{"hooks": {}}
+UPSTREAM
+    echo "not valid json {{{" > "$_lo"
+    (
+        info() { :; }
+        warn() { :; }
+        eval "$MERGE_FN"
+        merge_settings_json "$_up" "$_lo" "$_out"
+    )
+    if [[ -f "${_lo}.bak" ]] && jq empty "$_out" 2>/dev/null; then
+        assert "Malformed local JSON: backs up and overwrites" "pass"
+    else
+        assert "Malformed local JSON: backs up and overwrites" "fail"
+    fi
+    rm -f "$_up" "$_lo" "${_lo}.bak" "$_out"
+
+else
+    echo "  (jq not installed — skipping merge functional tests)"
+fi
+
+echo
+
+# ── settings.json merge in download_provider_config ────────────────
+
+echo "=== settings.json merge integration ==="
+
+if grep -q 'merge_settings_json' "$MANAGE_SCRIPT"; then
+    assert "download_provider_config calls merge_settings_json" "pass"
+else
+    assert "download_provider_config calls merge_settings_json" "fail"
+fi
+
+if grep -q 'Merged.*preserved local customizations' "$MANAGE_SCRIPT"; then
+    assert "Merge success message is present" "pass"
+else
+    assert "Merge success message is present" "fail"
+fi
+
+if grep -q 'settings.json.bak' "$MANAGE_SCRIPT"; then
+    assert "Backup logic for malformed JSON is present" "pass"
+else
+    assert "Backup logic for malformed JSON is present" "fail"
+fi
+
+echo
+
 # ── shellcheck ──────────────────────────────────────────────────────
 
 echo "=== shellcheck ==="
