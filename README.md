@@ -84,21 +84,21 @@ Claude can also select agents automatically based on your request.
 
 <table>
 <tr><th>Agent</th><th>Description</th><th>Model</th></tr>
-<tr><td>agent-specialist</td><td>Design and optimize AI agents with strong contracts</td><td rowspan="14">opus</td></tr>
+<tr><td>agent-specialist</td><td>Design and optimize AI agents with strong contracts</td><td rowspan="13">opus</td></tr>
 <tr><td>claudemd-architect</td><td>Create and update CLAUDE.md files for agent-ready repos</td></tr>
 <tr><td>data-engineer</td><td>ETL/ELT pipelines, data modeling, orchestration, and data quality</td></tr>
 <tr><td>marketing-lead</td><td>Positioning, messaging, and go-to-market copy</td></tr>
 <tr><td>ml-architect</td><td>End-to-end ML system design and production ML decisions</td></tr>
 <tr><td>prod-engineer</td><td>Production incident response and reliability engineering</td></tr>
 <tr><td>product-owner</td><td>Product direction, prioritization, specs, and decisions</td></tr>
-<tr><td>pr-refiner</td><td>Refine PRs based on review feedback</td></tr>
 <tr><td>prompt-engineer</td><td>Engineer effective prompts for AI models</td></tr>
 <tr><td>security-auditor</td><td>Security assessments and vulnerability identification</td></tr>
 <tr><td>solution-eng</td><td>Technical sales, discovery, POCs, and solution design</td></tr>
 <tr><td>systems-architect</td><td>High-level architecture guidance</td></tr>
 <tr><td>tech-lead</td><td>Plan implementation approaches, break down tasks</td></tr>
 <tr><td>ux-designer</td><td>UX critique covering usability, accessibility, and business alignment</td></tr>
-<tr><td>code-reviewer</td><td>Thorough code reviews for quality and security</td><td rowspan="8">sonnet</td></tr>
+<tr><td>code-reviewer</td><td>Thorough code reviews for quality and security</td><td rowspan="9">sonnet</td></tr>
+<tr><td>pr-refiner</td><td>Refine PRs based on review feedback</td></tr>
 <tr><td>debugger</td><td>Systematic bug investigation and root cause analysis</td></tr>
 <tr><td>digital-designer</td><td>Print-ready layouts for booklets, brochures, posters</td></tr>
 <tr><td>documentation-writer</td><td>Clear, minimal documentation following DRY principles</td></tr>
