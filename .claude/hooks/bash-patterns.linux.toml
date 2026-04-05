@@ -109,3 +109,17 @@ patterns = [
     "^faillog -a",
     "^lastlog",
 ]
+
+[allow.linux_network_readonly]
+description = "Linux network inspection (read-only queries)"
+patterns = [
+    # nmcli show/status queries (mutations are in ask.network_config)
+    "^nmcli .*(show|status|list)",
+    "^nmcli -[tgf]",
+    # Display server inspection
+    "^xrandr",
+    "^xdpyinfo",
+    # Window manager inspection
+    "^wmctrl -l",
+    "^wmctrl -d",
+]

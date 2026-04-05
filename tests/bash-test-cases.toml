@@ -1127,9 +1127,9 @@ description = "chain: git show piped to python for deps (real-world)"
 # NOTE: Complex loops with variable assignments using command substitution
 # fall through to ask because the validator splits "count=$(cd ...)" as an
 # unrecognized sub-command. This is a known limitation — safe false positive.
-[[ask]]
+[[allow]]
 command = "for d in /home/user/github/*/; do count=$(cd \"$d\" && git status --porcelain 2>/dev/null | wc -l); if [ \"$count\" -gt 0 ]; then echo \"$(basename $d): $count\"; fi; done"
-description = "chain: complex for loop with cmd substitution (asks due to splitting limitation)"
+description = "chain: complex for loop with cmd substitution (variable assignments now consumed correctly)"
 
 [[allow]]
 command = "echo 'Total repo size:'; du -sh /backup/restic/ 2>/dev/null; echo '---'; ls /backup/restic/snapshots/ 2>/dev/null | wc -l"
@@ -3059,4 +3059,300 @@ os = "linux"
 [[allow]]
 command = "faillog -a"
 description = "faillog all users (Linux read-only)"
+os = "linux"
+
+# =============================================================================
+# node_modules/.bin executables
+# =============================================================================
+
+[[allow]]
+command = "node_modules/.bin/vitest run 2>&1 | tail -15"
+description = "node_modules/.bin/vitest (relative path)"
+
+[[allow]]
+command = "node_modules/.bin/tsc --noEmit 2>&1 | head -80"
+description = "node_modules/.bin/tsc with redirect and pipe"
+
+[[allow]]
+command = "node_modules/.bin/eslint src/ 2>&1"
+description = "node_modules/.bin/eslint"
+
+[[allow]]
+command = "node_modules/.bin/next build 2>&1 | tail -20"
+description = "node_modules/.bin/next build"
+
+[[allow]]
+command = "./node_modules/.bin/vitest run --reporter=verbose 2>&1"
+description = "node_modules/.bin with ./ prefix"
+
+[[allow]]
+command = "/home/rrl/github/myproject/node_modules/.bin/tsc --noEmit 2>&1"
+description = "node_modules/.bin with absolute path"
+
+[[allow]]
+command = "/home/user/project/.claude/worktrees/agent-abc123/node_modules/.bin/vitest run tests/ 2>&1"
+description = "node_modules/.bin in worktree with absolute path"
+
+# =============================================================================
+# Project executables (relative paths)
+# =============================================================================
+
+[[allow]]
+command = "./getmyorg 2>&1"
+description = "relative project executable"
+
+[[allow]]
+command = "server/getmyorg --dev 2>/dev/null"
+description = "relative path project executable"
+
+[[allow]]
+command = "cd /home/user/project/server && ./myapp 2>&1 || true"
+description = "cd + relative project executable"
+
+# =============================================================================
+# find with read-only -exec
+# =============================================================================
+
+[[allow]]
+command = "find /home/user/docs -name \"*.md\" -exec grep -l mermaid {} \\;"
+description = "find -exec grep (read-only)"
+
+[[allow]]
+command = "find /tmp -type f -name \"*.yaml\" -exec cat {} \\; 2>/dev/null"
+description = "find -exec cat (read-only)"
+
+[[allow]]
+command = "find . -name \"*.ts\" -exec wc -l {} \\;"
+description = "find -exec wc (read-only)"
+
+[[allow]]
+command = "find /home/user/project -name \"*.md\" | xargs grep -l \"pattern\""
+description = "find pipe xargs grep (read-only)"
+
+[[allow]]
+command = "find . -name \"*.py\" | xargs wc -l"
+description = "find pipe xargs wc (read-only)"
+
+# =============================================================================
+# Git merge/cherry-pick/branch operations
+# =============================================================================
+
+[[allow]]
+command = "git merge --ff-only feat/my-feature"
+description = "git merge --ff-only (safe fast-forward)"
+
+[[allow]]
+command = "git merge --no-edit worktree-agent-abc123 2>&1 | tail -5"
+description = "git merge worktree branch (routine workflow)"
+
+[[allow]]
+command = "git merge worktree-agent-a0395d1b --no-edit 2>&1 | tail -10"
+description = "git merge worktree branch (reversed arg order)"
+
+[[allow]]
+command = "git merge --abort"
+description = "git merge --abort (undo in-progress merge)"
+
+[[allow]]
+command = "git cherry-pick abc1234"
+description = "git cherry-pick single commit"
+
+[[allow]]
+command = "git cherry-pick abc1234 def5678 --no-edit 2>&1"
+description = "git cherry-pick multiple commits"
+
+[[allow]]
+command = "git cherry-pick --continue --no-edit 2>&1"
+description = "git cherry-pick --continue"
+
+[[allow]]
+command = "git cherry-pick --abort"
+description = "git cherry-pick --abort"
+
+[[allow]]
+command = "git cherry-pick --skip 2>&1"
+description = "git cherry-pick --skip"
+
+[[allow]]
+command = "git branch -d feat/my-feature"
+description = "git branch -d (safe delete, refuses unmerged)"
+
+[[allow]]
+command = "git branch -d feat/a feat/b 2>&1"
+description = "git branch -d multiple branches"
+
+[[allow]]
+command = "git stash drop"
+description = "git stash drop (single entry)"
+
+[[allow]]
+command = "git stash drop 2>&1"
+description = "git stash drop with redirect"
+
+[[allow]]
+command = "git push --force-with-lease origin feat/my-feature"
+description = "git push --force-with-lease (safe force push)"
+
+[[allow]]
+command = "git push --force-with-lease 2>&1"
+description = "git push --force-with-lease bare"
+
+# =============================================================================
+# GitHub PR close (reversible)
+# =============================================================================
+
+[[allow]]
+command = "gh pr close 95 --comment \"Superseded by newer PR\""
+description = "gh pr close with comment (reversible)"
+
+[[allow]]
+command = "gh pr close 95 --delete-branch=false 2>/dev/null"
+description = "gh pr close without deleting branch"
+
+# =============================================================================
+# npm/yarn/pnpm install from package.json (no package specified)
+# =============================================================================
+
+[[allow]]
+command = "npm install 2>&1"
+description = "npm install bare with redirect (from package.json)"
+
+[[allow]]
+command = "npm install"
+description = "npm install bare"
+
+[[allow]]
+command = "npm ci"
+description = "npm ci (clean install from lockfile)"
+
+[[allow]]
+command = "yarn install"
+description = "yarn install bare"
+
+[[allow]]
+command = "pnpm install 2>&1"
+description = "pnpm install bare with redirect"
+
+# =============================================================================
+# Text comparison tools
+# =============================================================================
+
+[[allow]]
+command = "comm -23 /tmp/file1.txt /tmp/file2.txt"
+description = "comm text comparison"
+
+[[allow]]
+command = "comm -13 <(sort file1) <(sort file2)"
+description = "comm with process substitution"
+
+# =============================================================================
+# Bash with absolute project script paths
+# =============================================================================
+
+[[allow]]
+command = "bash /home/user/project/scripts/sync-to-repo.sh 2>&1 | head -5"
+description = "bash with absolute path to scripts/"
+
+[[allow]]
+command = "sh /home/user/project/tests/run-integration.sh"
+description = "sh with absolute path to tests/"
+
+# =============================================================================
+# Variable assignments in loops (splitter regression tests)
+# =============================================================================
+
+[[allow]]
+command = "for f in *.yaml; do name=$(basename \"$f\" .yaml); echo \"$name\"; done"
+description = "for-loop with variable assignment via command substitution"
+
+[[allow]]
+command = "for f in *.md; do slug=$(basename \"$f\" .md); grep -q \"pattern\" \"$f\" && echo \"$slug\"; done"
+description = "for-loop with var assignment and grep"
+
+[[allow]]
+command = "for f in agents/*.yaml; do name=$(basename \"$f\" .yaml); if grep -q \"key:\" \"$f\"; then echo \"HAS: $name\"; else echo \"MISSING: $name\"; fi; done | sort"
+description = "complex for-loop with var assignment, grep, conditionals, pipe"
+
+[[allow]]
+command = "val=$(cat file.txt 2>/dev/null); echo \"$val\""
+description = "variable assignment from cat with redirect"
+
+[[allow]]
+command = "status=$(kubectl get job myjob -n ns -o jsonpath='{.status}' 2>/dev/null); echo \"$status\""
+description = "variable assignment from kubectl get"
+
+# =============================================================================
+# Bare redirects and pipe tails (splitter edge cases)
+# =============================================================================
+
+[[allow]]
+command = "echo hello 2>/dev/null"
+description = "command with 2>/dev/null redirect"
+
+[[allow]]
+command = "git status 2>&1 | head -5"
+description = "command with pipe to head"
+
+[[allow]]
+command = "ls -la 2>/dev/null | head -20"
+description = "command with redirect and pipe"
+
+# =============================================================================
+# Chain combinations (verify splitter + patterns work together)
+# =============================================================================
+
+[[allow]]
+command = "cd /home/user/project && gh pr view --json number,title,body 2>/dev/null | head -5"
+description = "cd + gh pr view (was triggering settings.json prompt)"
+
+[[allow]]
+command = "cd /home/user/project && go build ./... 2>&1"
+description = "cd + go build"
+
+[[allow]]
+command = "cd /home/user/project && go test ./... -v 2>&1 | tail -30"
+description = "cd + go test with pipe"
+
+[[allow]]
+command = "cd /home/user/project && npm install 2>&1"
+description = "cd + npm install bare"
+
+[[allow]]
+command = "cd /home/user/project && python3 -m pytest tests/ -v 2>&1"
+description = "cd + pytest"
+
+[[allow]]
+command = "cd /home/user/project && node_modules/.bin/tsc --noEmit 2>&1 | head -20"
+description = "cd + node_modules/.bin/tsc"
+
+[[allow]]
+command = "cd /home/user/project && ./server 2>&1 || true"
+description = "cd + project executable"
+
+[[allow]]
+command = "git stash && for f in *.yaml; do name=$(basename \"$f\" .yaml); echo \"$name\"; done | wc -l && git stash pop"
+description = "git stash + for-loop with var assignment + git stash pop"
+
+# =============================================================================
+# Linux-specific: network/display inspection (read-only)
+# =============================================================================
+
+[[allow]]
+command = "nmcli -t -f NAME,FILENAME connection show 2>/dev/null"
+description = "nmcli connection show (read-only)"
+os = "linux"
+
+[[allow]]
+command = "nmcli -t -f ipv6.never-default connection show \"Wired connection 1\" 2>/dev/null"
+description = "nmcli specific connection query"
+os = "linux"
+
+[[allow]]
+command = "xrandr --listproviders 2>/dev/null"
+description = "xrandr display providers"
+os = "linux"
+
+[[allow]]
+command = "wmctrl -l 2>/dev/null"
+description = "wmctrl list windows"
 os = "linux"

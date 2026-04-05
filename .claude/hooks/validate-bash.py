@@ -366,6 +366,11 @@ def split_commands(cmd: str) -> list[str]:
                     current += ';;'
                     i += 2
                     continue
+                # Don't split on \; (escaped semicolon, e.g. find -exec cmd {} \;)
+                if current.endswith('\\'):
+                    current += char
+                    i += 1
+                    continue
                 if current.strip():
                     segments.append(current)
                 current = ""
@@ -401,8 +406,10 @@ CONTROL_FLOW_KEYWORDS = re.compile(
 
 # Shell control flow terminators that may have redirections attached
 # These complete control structures and are safe on their own
+# Matches: done, fi, esac — optionally followed by redirections like
+# 2>/dev/null, | sort, 2>&1 | head, etc.
 CONTROL_FLOW_TERMINATORS = re.compile(
-    r'^(done|fi|esac)(\s*[<>|&].*)?$',
+    r'^(done|fi|esac)(\s+[\d<>|&].*|\s*$)',
     re.IGNORECASE
 )
 
@@ -593,6 +600,43 @@ def strip_line_continuations(cmd: str) -> str:
     return cmd.replace('\\\n', ' ')
 
 
+def _is_bare_redirect(segment: str) -> bool:
+    """Check if a segment is just a bare redirect/pipe tail with no real command.
+
+    After chain splitting, residual segments like '2>/dev/null', '| head -5',
+    '2>/dev/null | head -15', or '2>&1' can appear. These are not commands
+    and should be skipped.
+    """
+    # Strip all redirections: N>/dev/null, 2>&1, >/dev/null, N>>/path, etc.
+    s = re.sub(r'\d*>>?&?\d*/?[\w./-]*', '', segment)
+    # Strip pipe + safe tail commands (head, tail, sort, wc, tee, grep, etc.)
+    s = re.sub(r'\|\s*(head|tail|sort|wc|uniq|tee|grep|sed|awk|cut|tr|column|less|more|cat|fmt|nl|rev|paste|comm|fold|expand|unexpand|pr)\b[^|]*', '', s)
+    # Strip remaining pipes to nothing
+    s = re.sub(r'\|', '', s)
+    return not s.strip()
+
+
+def _strip_case_label(segment: str) -> str:
+    """Strip case-statement pattern labels from segment start.
+
+    When 'case $var in pattern) cmd ;; esac' is split on ;;/;,
+    we get segments like 'pattern) cmd'. Strip the 'pattern) ' prefix
+    so 'cmd' can be validated independently.
+
+    Case labels are typically short identifiers/globs without spaces:
+      foo) cmd        yes|no) cmd        *.txt) cmd        *) cmd
+    We require NO spaces before ) to avoid false matches on commands
+    containing (...) like 'kubectl exec ... -c "count(*) FROM ..."'.
+    """
+    # Match: non-space, non-$, non-newline chars followed by ) then space
+    # The \S+ ensures no spaces before ), distinguishing case labels from
+    # commands that happen to contain (...)
+    match = re.match(r'^(\S+)\)\s+', segment)
+    if match and '$(' not in match.group(1) and '(' not in match.group(1):
+        return segment[match.end():]
+    return segment
+
+
 def clean_segment(segment: str) -> str:
     """Clean a command segment: strip whitespace, subshell chars, env vars, comments."""
     segment = segment.strip()
@@ -605,6 +649,14 @@ def clean_segment(segment: str) -> str:
     # Strip leading comments
     segment = strip_leading_comment(segment)
 
+    # Strip env vars BEFORE subshell stripping so that VAR=$(...) is consumed
+    # intact. If we strip trailing ) first, it breaks the $() matching.
+    segment = strip_env_vars(segment)
+
+    # After stripping env vars, if nothing remains, it was a pure assignment
+    if not segment.strip():
+        return ""
+
     # Strip leading subshell/grouping: ( {
     while segment and segment[0] in '({':
         segment = segment[1:].lstrip()
@@ -613,8 +665,9 @@ def clean_segment(segment: str) -> str:
     while segment and segment[-1] in ')}':
         segment = segment[:-1].rstrip()
 
-    # Strip env vars
-    segment = strip_env_vars(segment)
+    # Check for bare redirects / pipe tails (e.g. "2>/dev/null | head -5")
+    if _is_bare_redirect(segment):
+        return ""
 
     # Unwrap bash -c / sh -c wrappers to expose the inner command
     segment = strip_bash_c_wrapper(segment)
@@ -622,6 +675,16 @@ def clean_segment(segment: str) -> str:
     # Strip shell control flow keywords (then, else, do, etc.)
     # This allows validation of the body command within control structures
     segment = strip_control_flow_keyword(segment)
+
+    # Strip case-statement pattern labels (e.g. "pattern) grep -q ...")
+    segment = _strip_case_label(segment)
+
+    # Re-run strip_env_vars after control flow stripping. A segment like
+    # "do name=$(cmd)" becomes "name=$(cmd)" after keyword stripping,
+    # which is now a pure assignment that should be consumed.
+    segment = strip_env_vars(segment)
+    if not segment.strip():
+        return ""
 
     return segment
 

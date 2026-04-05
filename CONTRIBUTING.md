@@ -116,6 +116,31 @@ CMD:    git rebase main
 
 </details>
 
+### Permission Precedence: settings.json vs Hooks
+
+Claude Code has two permission layers that interact:
+
+1. **`settings.json` permissions** — Claude Code's built-in permission system
+2. **PreToolUse hooks** — Custom validation (our `validate-bash.sh`)
+
+When both are configured, their decisions combine. The hook fires first, then settings.json rules apply on top:
+
+| settings.json | Hook: ALLOW | Hook: ASK | Hook: DENY | Hook: no response |
+|---|---|---|---|---|
+| **allow** | Allow | **ASK (hook wins)** | **Blocked** | Allow |
+| **deny** | **Blocked (deny wins)** | Blocked | Blocked | Blocked |
+| **ask** | **Allow (hook wins)** | ASK | Blocked | ASK |
+| **no match** | Allow | ASK | Blocked | ASK (default) |
+
+**Key takeaways:**
+
+- **`settings.json` deny is absolute** — nothing overrides it, not even a hook returning allow
+- **Hook deny is immediate** — blocks before settings.json is consulted
+- **Hook ask overrides settings allow** — so hook ask patterns enforce prompting even if settings says allow
+- **Hook allow overrides settings ask** — so hook allow patterns reduce friction
+
+This is why `settings.json` ships with `Bash(*)` in the allow list. It delegates all Bash validation to the hook, which is the comprehensive security layer. Without `Bash(*)`, Claude Code's built-in permission system adds redundant prompts (e.g., "Compound command contains cd with output redirection") that the hook has already validated.
+
 ## Which Script Should I Use?
 
 | Use case | Recommended |
