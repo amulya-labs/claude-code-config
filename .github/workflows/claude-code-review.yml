@@ -123,6 +123,24 @@ jobs:
             "/repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions" \
             -f content='eyes'
 
+      - name: Resolve head SHA
+        id: sha
+        if: steps.meta.outputs.is_public == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # SECURITY: Snapshot the PR head SHA once at job start to prevent TOCTOU attacks.
+          # An attacker cannot force-push malicious code after this point because we pin
+          # the checkout to this immutable SHA rather than the mutable refs/pull/N/head ref.
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "value=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_OUTPUT"
+          else
+            SHA=$(gh pr view "${{ steps.pr.outputs.number }}" \
+              --repo "${{ github.repository }}" \
+              --json headRefOid --jq .headRefOid)
+            echo "value=$SHA" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -131,7 +149,8 @@ jobs:
           # The claude-code-action restores .claude/ config from this trusted base.
           # PR content is accessed exclusively via gh API commands.
           # For non-public repos, check out the PR head so local file tools (Read/Glob/Grep) work.
-          ref: ${{ steps.meta.outputs.is_public == 'true' && github.event.repository.default_branch || (steps.pr.outputs.number != '' && format('refs/pull/{0}/head', steps.pr.outputs.number) || github.ref) }}
+          # The ref is pinned to an immutable SHA (resolved above) to prevent TOCTOU race conditions.
+          ref: ${{ steps.meta.outputs.is_public == 'true' && github.event.repository.default_branch || steps.sha.outputs.value }}
 
       - name: Post review-started notice
         if: github.event_name != 'pull_request' || github.event.action == 'review_requested'

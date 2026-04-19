@@ -71,12 +71,27 @@ jobs:
             "/repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions" \
             -f content='eyes'
 
+      - name: Resolve head SHA
+        id: sha
+        if: steps.meta.outputs.is_public == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # SECURITY: Snapshot the PR head SHA once at job start to prevent TOCTOU attacks.
+          # An attacker cannot force-push malicious code after this point because we pin
+          # the checkout to this immutable SHA rather than the mutable refs/pull/N/head ref.
+          SHA=$(gh pr view "${{ github.event.issue.number }}" \
+            --repo "${{ github.repository }}" \
+            --json headRefOid --jq .headRefOid)
+          echo "value=$SHA" >> "$GITHUB_OUTPUT"
+
       - name: Checkout repository (non-public only)
         if: steps.meta.outputs.is_public == 'false'
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
-          ref: refs/pull/${{ github.event.issue.number }}/head
+          # SECURITY: Pinned to immutable SHA (resolved above) to prevent TOCTOU race conditions.
+          ref: ${{ steps.sha.outputs.value }}
 
       - name: Checkout default branch (public only)
         if: steps.meta.outputs.is_public == 'true'
