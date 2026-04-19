@@ -25,12 +25,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # =============================
-  # INTERNAL (non-public repos)
-  # =============================
-  gemini-review-internal:
+  gemini-review:
+    # Unified job: handles both public and non-public repos.
+    # SECURITY: for public repos, the PR head is never checked out.
+    # The script is fetched from the default branch via the GitHub API.
     if: |
-      github.event.repository.visibility != 'public' &&
       github.event.issue.pull_request &&
       (
         startsWith(github.event.comment.body, '/gemini-light-review') ||
@@ -52,6 +51,16 @@ jobs:
       actions: read
 
     steps:
+      - name: Detect visibility
+        id: meta
+        shell: bash
+        run: |
+          if [ "${{ github.event.repository.visibility }}" = "public" ]; then
+            echo "is_public=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "is_public=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: React to triggering comment
         env:
           GH_TOKEN: ${{ github.token }}
@@ -62,11 +71,19 @@ jobs:
             "/repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions" \
             -f content='eyes'
 
-      - name: Checkout repository
+      - name: Checkout repository (non-public only)
+        if: steps.meta.outputs.is_public == 'false'
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
           ref: refs/pull/${{ github.event.issue.number }}/head
+
+      - name: Checkout default branch (public only)
+        if: steps.meta.outputs.is_public == 'true'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          ref: ${{ github.event.repository.default_branch }}
 
       - name: Install Python dependencies
         run: pip install google-genai --quiet
@@ -92,8 +109,9 @@ jobs:
             echo "use_cache=0" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Run Gemini Code Review
-        id: gemini-review
+      - name: Run Gemini Code Review (non-public)
+        if: steps.meta.outputs.is_public == 'false'
+        id: gemini-review-internal
         timeout-minutes: 30
         env:
           GH_TOKEN: ${{ github.token }}
@@ -108,115 +126,9 @@ jobs:
           SCRIPT_SOURCE: local
         run: bash .github/workflows/scripts/gemini_review_workflow.sh
 
-      - name: Upload review artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: gemini-review-${{ github.event.issue.number }}
-          path: |
-            /tmp/inline-comments.json
-            /tmp/review-metrics.json
-          if-no-files-found: ignore
-          retention-days: 7
-
-      - name: Post failure notice
-        if: always() && github.event.issue.number != ''
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REVIEW_OUTCOME: ${{ steps.gemini-review.outcome }}
-          JOB_STATUS: ${{ job.status }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          PR_NUM: ${{ github.event.issue.number }}
-          REPO: ${{ github.repository }}
-          COMMENT_BODY: ${{ github.event.comment.body }}
-        run: |
-          if [ "$REVIEW_OUTCOME" = "success" ]; then exit 0; fi
-
-          if [ "$JOB_STATUS" = "cancelled" ]; then
-            REASON="cancelled (superseded by a newer push or manually stopped)"
-          elif [ -z "$REVIEW_OUTCOME" ] || [ "$REVIEW_OUTCOME" = "skipped" ]; then
-            REASON="review step did not run (a prior step failed or was skipped)"
-          else
-            REASON="failed (API error, timeout, or internal error)"
-          fi
-
-          if [[ "$COMMENT_BODY" == /gemini-pro-review* ]]; then RETRIGGER="/gemini-pro-review"
-          elif [[ "$COMMENT_BODY" == /gemini-deep-review* ]]; then RETRIGGER="/gemini-deep-review"
-          elif [[ "$COMMENT_BODY" == /gemini-light-review* ]]; then RETRIGGER="/gemini-light-review"
-          else RETRIGGER="/gemini-review"; fi
-
-          cat > /tmp/failure-notice.md <<EOF
-          > 💎 **Note:** The automated Gemini code review did not complete — $REASON.
-          >
-          > Any inline comments posted above are valid findings, but the review may be incomplete.
-          > [View workflow run]($RUN_URL) for details. Re-trigger with \`$RETRIGGER\`.
-          EOF
-
-          gh pr comment "$PR_NUM" \
-            --repo "$REPO" \
-            --body-file /tmp/failure-notice.md
-
-  # =============================
-  # OSS / PUBLIC (public repos)
-  # =============================
-  gemini-review-oss:
-    # SECURITY: never checkout PR code in public/OSS mode. Use gh pr diff/view only.
-    if: |
-      github.event.repository.visibility == 'public' &&
-      github.event.issue.pull_request &&
-      (
-        startsWith(github.event.comment.body, '/gemini-light-review') ||
-        startsWith(github.event.comment.body, '/gemini-deep-review') ||
-        startsWith(github.event.comment.body, '/gemini-pro-review') ||
-        startsWith(github.event.comment.body, '/gemini-review')
-      ) &&
-      (
-        github.event.comment.author_association == 'MEMBER' ||
-        github.event.comment.author_association == 'OWNER' ||
-        github.event.comment.author_association == 'COLLABORATOR'
-      )
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
-      issues: write
-      id-token: write
-      actions: read
-
-    steps:
-      - name: React to triggering comment
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh api \
-            --method POST \
-            -H "Accept: application/vnd.github+json" \
-            "/repos/${{ github.repository }}/issues/comments/${{ github.event.comment.id }}/reactions" \
-            -f content='eyes'
-
-      - name: Install Python dependencies
-        run: pip install google-genai --quiet
-
-      - name: Determine review model
-        id: model
-        env:
-          COMMENT_BODY: ${{ github.event.comment.body }}
-        run: |
-          if [[ "$COMMENT_BODY" == /gemini-pro-review* ]]; then
-            echo "model=gemini-2.5-pro" >> "$GITHUB_OUTPUT"
-            echo "mode=pro" >> "$GITHUB_OUTPUT"
-          elif [[ "$COMMENT_BODY" == /gemini-deep-review* ]]; then
-            echo "model=gemini-2.5-flash" >> "$GITHUB_OUTPUT"
-            echo "mode=deep" >> "$GITHUB_OUTPUT"
-          else
-            echo "model=gemini-2.5-flash" >> "$GITHUB_OUTPUT"
-            echo "mode=light" >> "$GITHUB_OUTPUT"
-          fi
-          # OSS job: never cache (no checkout; repo files not available)
-          echo "use_cache=0" >> "$GITHUB_OUTPUT"
-
-      - name: Run Gemini Code Review (OSS)
-        id: gemini-review
+      - name: Run Gemini Code Review (public)
+        if: steps.meta.outputs.is_public == 'true'
+        id: gemini-review-oss
         timeout-minutes: 30
         env:
           GH_TOKEN: ${{ github.token }}
@@ -242,7 +154,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: gemini-review-oss-${{ github.event.issue.number }}
+          name: gemini-review-${{ github.event.issue.number }}
           path: |
             /tmp/inline-comments.json
             /tmp/review-metrics.json
@@ -253,15 +165,25 @@ jobs:
         if: always() && github.event.issue.number != ''
         env:
           GH_TOKEN: ${{ github.token }}
-          REVIEW_OUTCOME: ${{ steps.gemini-review.outcome }}
+          REVIEW_OUTCOME_INTERNAL: ${{ steps.gemini-review-internal.outcome }}
+          REVIEW_OUTCOME_OSS: ${{ steps.gemini-review-oss.outcome }}
           JOB_STATUS: ${{ job.status }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          PR_NUM: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
           COMMENT_BODY: ${{ github.event.comment.body }}
         run: |
+          # Determine which review step ran (one will be skipped, the other will have an outcome)
+          if [ -n "$REVIEW_OUTCOME_INTERNAL" ] && [ "$REVIEW_OUTCOME_INTERNAL" != "skipped" ]; then
+            REVIEW_OUTCOME="$REVIEW_OUTCOME_INTERNAL"
+          else
+            REVIEW_OUTCOME="$REVIEW_OUTCOME_OSS"
+          fi
+
           if [ "$REVIEW_OUTCOME" = "success" ]; then exit 0; fi
 
           if [ "$JOB_STATUS" = "cancelled" ]; then
-            REASON="cancelled (likely superseded by a newer push or manual cancellation)"
+            REASON="cancelled (superseded by a newer push or manually stopped)"
           elif [ -z "$REVIEW_OUTCOME" ] || [ "$REVIEW_OUTCOME" = "skipped" ]; then
             REASON="review step did not run (a prior step failed or was skipped)"
           else
@@ -280,6 +202,6 @@ jobs:
           > [View workflow run]($RUN_URL) for details. Re-trigger with \`$RETRIGGER\`.
           EOF
 
-          gh pr comment "${{ github.event.issue.number }}" \
-            --repo "${{ github.repository }}" \
+          gh pr comment "$PR_NUM" \
+            --repo "$REPO" \
             --body-file /tmp/failure-notice.md
