@@ -150,7 +150,7 @@ jobs:
           # PR content is accessed exclusively via gh API commands.
           # For non-public repos, check out the PR head so local file tools (Read/Glob/Grep) work.
           # The ref is pinned to an immutable SHA (resolved above) to prevent TOCTOU race conditions.
-          ref: ${{ steps.meta.outputs.is_public == 'true' && github.event.repository.default_branch || (steps.sha.outputs.value != '' && steps.sha.outputs.value || github.ref) }}
+          ref: ${{ steps.meta.outputs.is_public == 'true' && github.event.repository.default_branch || steps.sha.outputs.value }}
 
       - name: Post review-started notice
         if: github.event_name != 'pull_request' || github.event.action == 'review_requested'
