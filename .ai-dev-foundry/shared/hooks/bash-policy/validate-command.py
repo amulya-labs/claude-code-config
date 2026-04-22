@@ -111,15 +111,8 @@ def strip_env_vars(cmd: str) -> str:
         rest = cmd[match.end() :]
 
         if rest.startswith("$("):
-            depth = 1
-            i = 2
-            while depth > 0 and i < len(rest):
-                if rest[i] == "(":
-                    depth += 1
-                elif rest[i] == ")":
-                    depth -= 1
-                i += 1
-            cmd = rest[i:]
+            end = _find_matching_paren(rest, 2)
+            cmd = rest[end:]
         elif rest.startswith("`"):
             end = rest.find("`", 1)
             cmd = rest[end + 1 :] if end > 0 else ""
@@ -406,7 +399,11 @@ _SHELL_META = re.compile(r"&&|\|\||;|\||\$\(|`|\(|>>?|>&")
 
 def strip_bash_c_wrapper(segment: str) -> str:
     """Unwrap simple bash -c / sh -c wrappers to expose the inner command."""
-    match = re.match(r"^(?:/bin/)?(bash|sh)\s+-c\s+([\'\"])(.*)\2\s*$", segment, re.DOTALL)
+    match = re.match(
+        r"^(?:/bin/)?(bash|sh)\s+(?:-[a-zA-Z]+\s+)*-c\s+([\'\"])(.*)\2\s*$",
+        segment,
+        re.DOTALL,
+    )
     if not match:
         return segment
 

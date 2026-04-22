@@ -17,6 +17,16 @@ aidf_init_log_dir
 aidf_cleanup_old_logs
 
 if [[ ! -f "$CONFIG_FILE" ]]; then
+    if [[ -n "$AIDF_HOOK_LOG_DIR" ]]; then
+        LOG_FILE="$AIDF_HOOK_LOG_DIR/$(LC_ALL=C date '+%Y-%m-%d')-error.log"
+        {
+            echo "========================================"
+            echo "TIME:   $(LC_ALL=C date '+%Y-%m-%d %H:%M:%S')"
+            echo "ERROR:  Configuration file not found"
+            echo "PATH:   $CONFIG_FILE"
+            echo "========================================"
+        } >> "$LOG_FILE"
+    fi
     echo "Error: Configuration file not found: $CONFIG_FILE" >&2
     exit 1
 fi

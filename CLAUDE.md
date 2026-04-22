@@ -64,6 +64,12 @@ shellcheck .claude/hooks/*.sh .gemini/hooks/*.sh .codex/hooks/*.sh .ai-dev-found
   validate-bash.sh       -- Shell entry point: reads Claude JSON, calls validate-bash.py, logs
   validate-bash.py       -- Claude adapter: normalizes hook input/output for the shared engine
   post-bash.sh           -- Claude PostToolUse adapter: logs ASK->APPROVED outcomes
+  validate-bash.sh       -- Gemini shell entry point: reads Gemini JSON, calls validate-bash.py, logs
+  validate-bash.py       -- Gemini adapter: normalizes hook input/output for the shared engine
+  post-bash.sh           -- Gemini AfterTool adapter: logs ASK->APPROVED outcomes
+  validate-bash.sh       -- Codex shell entry point: reads Codex JSON, calls validate-bash.py, logs
+  validate-bash.py       -- Codex adapter: normalizes hook input/output for the shared engine
+  post-bash.sh           -- Codex PostToolUse adapter: logs ASK->APPROVED outcomes
 .ai-dev-foundry/shared/hooks/bash-policy/ -- Provider-neutral Bash policy engine
   validate-command.py    -- Shared validator with normalized JSON contract
   hook-lib.sh            -- Shared shell logging/path helpers

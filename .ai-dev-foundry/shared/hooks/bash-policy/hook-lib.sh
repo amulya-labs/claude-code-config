@@ -65,20 +65,24 @@ else:
 aidf_extract_project_from_json_input() {
     local input="$1"
     printf '%s' "$input" | python3 -c '
-import json, sys
+import json, os, sys
 try:
     data = json.load(sys.stdin)
-    cwd = data.get("cwd", "")
+    cwd = (
+        data.get("cwd", "")
+        or data.get("tool_input", {}).get("directory", "")
+        or data.get("toolInput", {}).get("directory", "")
+    )
     if not cwd:
-        cwd = data.get("tool_input", {}).get("directory", "")
-    if not cwd:
-        cwd = data.get("toolInput", {}).get("directory", "")
-    print(cwd or "unknown")
+        print("unknown")
+    elif "/.claude/worktrees/" in cwd:
+        before, after = cwd.split("/.claude/worktrees/", 1)
+        print(os.path.basename(before) + "-" + after.split("/", 1)[0])
+    else:
+        print(os.path.basename(cwd))
 except Exception:
     print("unknown")
-' 2>/dev/null | while IFS= read -r cwd; do
-    aidf_extract_project_from_cwd "$cwd"
-done
+' 2>/dev/null
 }
 
 aidf_extract_project_from_claude_input() {

@@ -21,15 +21,6 @@ validate_command_core = importlib.util.module_from_spec(_spec)
 sys.modules[_spec.name] = validate_command_core
 _spec.loader.exec_module(validate_command_core)
 
-CompiledPattern = validate_command_core.CompiledPattern
-load_config = validate_command_core.load_config
-detect_os = validate_command_core.detect_os
-merge_os_config = validate_command_core.merge_os_config
-compile_patterns = validate_command_core.compile_patterns
-strip_line_continuations = validate_command_core.strip_line_continuations
-split_commands = validate_command_core.split_commands
-validate_command = validate_command_core.validate_command
-
 
 def output_decision(decision: str, reason: str) -> None:
     """Output JSON decision for Claude Code hook."""

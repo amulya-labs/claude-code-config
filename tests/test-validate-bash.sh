@@ -11,11 +11,12 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 HOOK="$REPO_ROOT/.claude/hooks/validate-bash.sh"
+GEMINI_HOOK="$REPO_ROOT/.gemini/hooks/validate-bash.sh"
+CODEX_HOOK="$REPO_ROOT/.codex/hooks/validate-bash.sh"
 TEST_CASES="$SCRIPT_DIR/bash-test-cases.toml"
 
 PASS=0
 FAIL=0
-SKIP=0
 ERRORS=()
 
 # Colors for output (if terminal supports it)
@@ -161,6 +162,49 @@ run_inline_tests() {
     echo
 }
 
+test_provider_smoke() {
+    local provider="$1"
+    local hook="$2"
+    local payload="$3"
+    local jq_filter="$4"
+    local expected="$5"
+
+    local result decision
+    result=$(printf '%s' "$payload" | bash "$hook" 2>/dev/null) || true
+    if [[ -z "$result" ]]; then
+        decision="allow"
+    else
+        decision=$(echo "$result" | jq -r "$jq_filter")
+    fi
+
+    if [[ "$decision" == "$expected" ]]; then
+        echo -e "  ${GREEN}✓${NC} ${provider} adapter smoke test"
+        PASS=$((PASS + 1))
+    else
+        echo -e "  ${RED}✗${NC} ${provider} adapter smoke test"
+        echo "    Expected: $expected, Got: $decision"
+        ERRORS+=("${provider} adapter smoke test: expected $expected, got $decision")
+        FAIL=$((FAIL + 1))
+    fi
+}
+
+run_provider_smoke_tests() {
+    echo "Testing: Provider Adapter Smoke"
+    test_provider_smoke \
+        "Gemini" \
+        "$GEMINI_HOOK" \
+        "{\"tool_input\":{\"command\":\"git status\",\"directory\":\"$SCRIPT_DIR\"}}" \
+        '.decision // "error"' \
+        "allow"
+    test_provider_smoke \
+        "Codex" \
+        "$CODEX_HOOK" \
+        "{\"tool_input\":{\"command\":\"git push --force\",\"directory\":\"$SCRIPT_DIR\"}}" \
+        '.hookSpecificOutput.permissionDecision // "error"' \
+        "ask"
+    echo
+}
+
 # Main
 main() {
     echo "=== Bash Hook Test Suite ==="
@@ -186,6 +230,7 @@ main() {
 
     # Run inline edge case tests
     run_inline_tests
+    run_provider_smoke_tests
 
     # Summary
     echo "=== Summary ==="

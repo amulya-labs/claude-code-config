@@ -180,6 +180,8 @@ Trigger manually by commenting `/review` or `/gemini-review` on any PR (members/
 
 All `*-code-review.yml` workflows should opt in to the shared `/review` PR comment trigger alongside any agent-specific commands such as `/claude-review` or `/gemini-review`. This keeps the default review fan-out convention-based and avoids a separate dispatcher workflow.
 
+If both Claude and Gemini review workflows are installed, `/review` triggers both of them. Teams that want a single reviewer should disable the other workflow or use the provider-specific trigger instead.
+
 ### NotebookLM Sync
 
 Flattens your codebase into word-limited text sources using [repomix](https://github.com/yamadashy/repomix) and uploads them to a NotebookLM notebook on every push to main. Useful for keeping a "project brain" notebook up to date without manual effort.
