@@ -31,7 +31,7 @@ Agent instructions in markdown...
 
 ## Hooks
 
-The `.claude/hooks/` directory contains hooks that validate and log Bash commands.
+Provider-specific hook adapters live in `.claude/hooks/`, `.gemini/hooks/`, and `.codex/hooks/`. The provider-neutral Bash policy core lives in `.ai-dev-foundry/shared/hooks/bash-policy/`.
 
 | Hook | File | Purpose |
 |------|------|---------|
@@ -40,7 +40,7 @@ The `.claude/hooks/` directory contains hooks that validate and log Bash command
 
 ### Bash Command Validation
 
-The `validate-bash.sh` hook validates Bash commands against pattern lists in `bash-patterns.toml` and OS-specific overlay files.
+The provider adapters (`.claude/hooks/validate-bash.sh`, `.gemini/hooks/validate-bash.sh`, and `.codex/hooks/validate-bash.sh`) validate Bash commands through the shared policy engine in `.ai-dev-foundry/shared/hooks/bash-policy/`, which loads `bash-patterns.toml` and the OS-specific overlay files.
 
 **How it works:**
 
@@ -59,7 +59,7 @@ The `validate-bash.sh` hook validates Bash commands against pattern lists in `ba
 
 ### Customizing Patterns
 
-Edit `.claude/hooks/bash-patterns.toml` for cross-platform patterns, or the OS-specific overlay files for platform-specific commands:
+Edit `.ai-dev-foundry/shared/hooks/bash-policy/bash-patterns.toml` for cross-platform patterns, or the OS-specific overlay files for platform-specific commands:
 
 | File | Platform | When loaded |
 |------|----------|-------------|
@@ -93,7 +93,7 @@ Patterns are regular expressions. Use `^` to anchor to the start of the command.
 
 Hooks log `ASK` and `DENY` decisions (not `ALLOW`) to reduce disk I/O:
 
-- **Location:** `/tmp/claude-hook-logs/`
+- **Location:** `/tmp/ai-dev-foundry-hook-logs/`
 - **Format:** `YYYY-MM-DD-Day-<project>.log`
 - **Retention:** 15 days (auto-cleanup)
 

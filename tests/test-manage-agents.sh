@@ -73,6 +73,25 @@ else
     assert ".github/gemini-cache-manifest.yml exists" "fail" "File not found"
 fi
 
+EXPECTED_PROVIDER_FILES=(
+    .codex/hooks.json
+    .codex/hooks/validate-bash.sh
+    .codex/hooks/validate-bash.py
+    .codex/hooks/post-bash.sh
+    .gemini/settings.json
+    .gemini/hooks/validate-bash.sh
+    .gemini/hooks/validate-bash.py
+    .gemini/hooks/post-bash.sh
+)
+
+for f in "${EXPECTED_PROVIDER_FILES[@]}"; do
+    if [[ -f "$REPO_ROOT/$f" ]]; then
+        assert "$f exists" "pass"
+    else
+        assert "$f exists" "fail" "File not found"
+    fi
+done
+
 # gha-workflow-templates/ should no longer exist
 if [[ ! -d "$REPO_ROOT/gha-workflow-templates" ]]; then
     assert "gha-workflow-templates/ directory removed" "pass"
@@ -167,6 +186,13 @@ if grep -q 'PROVIDER_GEMINI_LABEL=' "$MANAGE_SCRIPT"; then
 else
     assert "PROVIDER_GEMINI_LABEL is defined" "fail" \
         "Expected PROVIDER_GEMINI_LABEL= in script"
+fi
+
+if grep -q 'PROVIDER_CODEX_LABEL=' "$MANAGE_SCRIPT"; then
+    assert "PROVIDER_CODEX_LABEL is defined" "pass"
+else
+    assert "PROVIDER_CODEX_LABEL is defined" "fail" \
+        "Expected PROVIDER_CODEX_LABEL= in script"
 fi
 
 echo
@@ -305,6 +331,46 @@ if grep -q 'gemini-cache-manifest.yml' "$MANAGE_SCRIPT"; then
 else
     assert "Script references gemini-cache-manifest.yml" "fail" \
         "Expected gemini-cache-manifest.yml in PROVIDER_GEMINI_EXTRA_FILES"
+fi
+
+echo
+
+# ── Codex provider checks ───────────────────────────────────────────
+
+echo "=== Codex provider support ==="
+
+if grep -q 'PROVIDER_CODEX_CONFIG_DIR=' "$MANAGE_SCRIPT"; then
+    assert "PROVIDER_CODEX_CONFIG_DIR is defined" "pass"
+else
+    assert "PROVIDER_CODEX_CONFIG_DIR is defined" "fail" \
+        "Expected PROVIDER_CODEX_CONFIG_DIR= in script"
+fi
+
+if grep -q 'PROVIDER_CODEX_CONFIG_ITEMS=' "$MANAGE_SCRIPT"; then
+    assert "PROVIDER_CODEX_CONFIG_ITEMS is defined" "pass"
+else
+    assert "PROVIDER_CODEX_CONFIG_ITEMS is defined" "fail" \
+        "Expected PROVIDER_CODEX_CONFIG_ITEMS= in script"
+fi
+
+if grep -q 'PROVIDER_CODEX_SHARED_ITEMS=' "$MANAGE_SCRIPT"; then
+    assert "PROVIDER_CODEX_SHARED_ITEMS is defined" "pass"
+else
+    assert "PROVIDER_CODEX_SHARED_ITEMS is defined" "fail" \
+        "Expected PROVIDER_CODEX_SHARED_ITEMS= in script"
+fi
+
+if grep -q 'usage_codex()' "$MANAGE_SCRIPT"; then
+    assert "usage_codex() function exists" "pass"
+else
+    assert "usage_codex() function exists" "fail"
+fi
+
+if grep -qE '^\s*(codex\)|.*\|codex[\|)])' "$MANAGE_SCRIPT"; then
+    assert "Agent 'codex' is handled in main case" "pass"
+else
+    assert "Agent 'codex' is handled in main case" "fail" \
+        "Expected codex case branch in main case statement"
 fi
 
 echo
@@ -478,6 +544,20 @@ else
         "Expected PROVIDER_CLAUDE_CONFIG_ITEMS= in script"
 fi
 
+if grep -q 'PROVIDER_CLAUDE_SHARED_ITEMS=' "$MANAGE_SCRIPT"; then
+    assert "PROVIDER_CLAUDE_SHARED_ITEMS is defined" "pass"
+else
+    assert "PROVIDER_CLAUDE_SHARED_ITEMS is defined" "fail" \
+        "Expected PROVIDER_CLAUDE_SHARED_ITEMS= in script"
+fi
+
+if grep -q 'SHARED_CONFIG_DIR=' "$MANAGE_SCRIPT"; then
+    assert "SHARED_CONFIG_DIR is defined" "pass"
+else
+    assert "SHARED_CONFIG_DIR is defined" "fail" \
+        "Expected SHARED_CONFIG_DIR= in script"
+fi
+
 if grep -q 'download_provider_config()' "$MANAGE_SCRIPT"; then
     assert "download_provider_config() function exists" "pass"
 else
@@ -488,6 +568,18 @@ if grep -q 'post_download_claude()' "$MANAGE_SCRIPT"; then
     assert "post_download_claude() post-hook exists" "pass"
 else
     assert "post_download_claude() post-hook exists" "fail"
+fi
+
+if grep -q 'post_download_gemini()' "$MANAGE_SCRIPT"; then
+    assert "post_download_gemini() post-hook exists" "pass"
+else
+    assert "post_download_gemini() post-hook exists" "fail"
+fi
+
+if grep -q 'post_download_codex()' "$MANAGE_SCRIPT"; then
+    assert "post_download_codex() post-hook exists" "pass"
+else
+    assert "post_download_codex() post-hook exists" "fail"
 fi
 
 echo

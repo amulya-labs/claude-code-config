@@ -147,7 +147,7 @@ cp -r ai-dev-foundry/.claude/ /path/to/your/project/.claude/
 
 ## Hooks
 
-The `.claude/hooks/` directory includes Bash command validation hooks that auto-approve safe commands and block dangerous ones. Patterns are defined in `bash-patterns.toml`.
+The shared Bash command validation engine lives in `.ai-dev-foundry/shared/hooks/bash-policy/`. Thin adapters now live in `.claude/hooks/`, `.gemini/hooks/`, and `.codex/hooks/`, so the same allow/ask/deny policy can be reused across Claude Code, Gemini CLI, and Codex without duplicating rules. OpenCode is still pending because its current CLI docs do not expose a comparable project hook surface.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for hook configuration details.
 

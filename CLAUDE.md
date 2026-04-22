@@ -30,10 +30,10 @@ tests/test-validate-bash.sh allow    # or: ask, deny
 tests/test-manage-agents.sh
 
 # Lint hook scripts
-shellcheck .claude/hooks/*.sh
+shellcheck .claude/hooks/*.sh .gemini/hooks/*.sh .codex/hooks/*.sh .ai-dev-foundry/shared/hooks/bash-policy/*.sh
 
 # Validate TOML config syntax
-python3 -c "import tomllib; tomllib.load(open('.claude/hooks/bash-patterns.toml','rb')); print('TOML ok')"
+python3 -c "import tomllib; tomllib.load(open('.ai-dev-foundry/shared/hooks/bash-policy/bash-patterns.toml','rb')); print('TOML ok')"
 
 # Validate agent frontmatter
 python3 -c "
@@ -47,8 +47,8 @@ for f in Path('.claude/agents').glob('*.md'):
 "
 
 # Full CI-equivalent local check (run before pushing)
-shellcheck .claude/hooks/*.sh && \
-  python3 -c "import tomllib; tomllib.load(open('.claude/hooks/bash-patterns.toml','rb'))" && \
+shellcheck .claude/hooks/*.sh .gemini/hooks/*.sh .codex/hooks/*.sh .ai-dev-foundry/shared/hooks/bash-policy/*.sh && \
+  python3 -c "import tomllib; tomllib.load(open('.ai-dev-foundry/shared/hooks/bash-policy/bash-patterns.toml','rb'))" && \
   pytest tests/test_validate_bash.py -v && \
   tests/test-validate-bash.sh && \
   tests/test-manage-agents.sh
@@ -58,15 +58,22 @@ shellcheck .claude/hooks/*.sh && \
 
 ```
 .claude/agents/          -- agent markdown files with YAML frontmatter; add/edit agents here
-.claude/hooks/           -- PreToolUse/PostToolUse bash command validation hooks
-  validate-bash.sh       -- Shell entry point: reads stdin JSON, calls validate-bash.py, logs
-  validate-bash.py       -- Python validator: splits chains, cleans segments, matches patterns
+.claude/hooks/           -- Claude-specific PreToolUse/PostToolUse adapters
+.gemini/hooks/           -- Gemini CLI BeforeTool/AfterTool adapters
+.codex/hooks/            -- Codex PreToolUse/PostToolUse adapters
+  validate-bash.sh       -- Shell entry point: reads Claude JSON, calls validate-bash.py, logs
+  validate-bash.py       -- Claude adapter: normalizes hook input/output for the shared engine
+  post-bash.sh           -- Claude PostToolUse adapter: logs ASK->APPROVED outcomes
+.ai-dev-foundry/shared/hooks/bash-policy/ -- Provider-neutral Bash policy engine
+  validate-command.py    -- Shared validator with normalized JSON contract
+  hook-lib.sh            -- Shared shell logging/path helpers
   bash-patterns.toml     -- Universal regex patterns: [deny.*], [ask.*], [allow.*]
   bash-patterns.linux.toml  -- Linux-specific pattern overlay (merged at runtime)
   bash-patterns.darwin.toml -- macOS-specific pattern overlay (merged at runtime)
   bash-patterns.windows.toml -- Windows/Git Bash pattern overlay (merged at runtime)
-  post-bash.sh           -- PostToolUse hook: logs ASK->APPROVED outcomes
-.claude/settings.json    -- Hook wiring + permission allow/deny lists (shared/committed)
+.claude/settings.json    -- Claude hook wiring + permission allow/deny lists (shared/committed)
+.gemini/settings.json    -- Gemini CLI hook wiring (shared/committed)
+.codex/hooks.json        -- Codex hook wiring (shared/committed)
 .claude/settings.local.json -- Local-only permission overrides (committed but for local use)
 scripts/manage-ai-configs.sh -- Install/update AI agent configs and GHA workflows via curl from GitHub
 scripts/git-subtree-mgr  -- Git subtree manager for tracking upstream changes
@@ -88,8 +95,8 @@ tests/                   -- All tests: bash-test-cases.toml, test_validate_bash.
 - Must be generalized (no project-specific references), focused (one domain per agent)
 
 ### Hook Patterns
-- Edit `.claude/hooks/bash-patterns.toml` for universal (cross-platform) patterns
-- Edit `.claude/hooks/bash-patterns.{linux,darwin,windows}.toml` for OS-specific patterns
+- Edit `.ai-dev-foundry/shared/hooks/bash-policy/bash-patterns.toml` for universal (cross-platform) patterns
+- Edit `.ai-dev-foundry/shared/hooks/bash-policy/bash-patterns.{linux,darwin,windows}.toml` for OS-specific patterns
 - **OS-aware layering**: the validator auto-detects the OS via `sys.platform` and merges the matching OS file on top of the base file. OS patterns are **appended** to matching base sections (never replace). New sections from OS files are added as-is.
 - Categories: `[deny.*]` (always block), `[ask.*]` (prompt user), `[allow.*]` (auto-approve)
 - Evaluation order: deny -> ask -> allow -> ask (default if no match)
@@ -100,8 +107,9 @@ tests/                   -- All tests: bash-test-cases.toml, test_validate_bash.
 - **Where to add patterns**: cross-platform commands go in `bash-patterns.toml`; OS-specific commands (e.g. `systemd-analyze` for Linux, `defaults write` for macOS) go in the matching OS file
 
 ### Hook Logic
-- Edit `.claude/hooks/validate-bash.py` for validator behavior
-- The shell wrapper (`validate-bash.sh`) handles logging only; do not add validation logic there
+- Edit `.ai-dev-foundry/shared/hooks/bash-policy/validate-command.py` for shared validator behavior
+- Edit `.claude/hooks/validate-bash.py`, `.gemini/hooks/validate-bash.py`, or `.codex/hooks/validate-bash.py` only for provider-specific translation
+- The shell wrapper (`validate-bash.sh`) handles logging and adapter invocation only; do not add validation logic there
 - The validator splits chains (`&&`, `||`, `;`), cleans segments (strips env vars, subshell chars, control flow keywords), then matches each segment against patterns independently
 - A chain is allowed only if ALL segments are allowed; any ask/deny segment escalates the whole chain
 
@@ -112,7 +120,7 @@ tests/                   -- All tests: bash-test-cases.toml, test_validate_bash.
 - Tests are data-driven: both `test_validate_bash.py` and `test-validate-bash.sh` read from this file
 
 ### Attribution
-- All `.sh`, `.py`, and `.toml` files under `.claude/hooks/` and `scripts/`, and all owned workflow files under `.github/workflows/` (`ci.yml`, `claude.yml`, `claude-code-review.yml`), must contain:
+- All `.sh`, `.py`, and `.toml` files under `.claude/hooks/`, `.gemini/hooks/`, `.codex/hooks/`, `.ai-dev-foundry/shared/hooks/bash-policy/`, and `scripts/`, and all owned workflow files under `.github/workflows/` (`ci.yml`, `claude.yml`, `claude-code-review.yml`), must contain:
   ```
   # Source: https://github.com/amulya-labs/ai-dev-foundry
   # License: MIT (https://opensource.org/licenses/MIT)
@@ -137,13 +145,13 @@ tests/                   -- All tests: bash-test-cases.toml, test_validate_bash.
 |---------|-------------|-----|
 | `Error: Python 3.11+ required` | Python < 3.11 without `tomli` | `pip install tomli` or upgrade Python |
 | Hook returns empty output | Empty or malformed JSON input | Check structure: `{"tool_input":{"command":"..."}}` |
-| Safe command triggers ASK | Command not in allow patterns, or ask pattern matches first | Check pattern order in `bash-patterns.toml` or OS-specific file; add allow pattern; add test case |
-| OS-specific command triggers ASK | Pattern missing from OS overlay file | Add pattern to `bash-patterns.{linux,darwin,windows}.toml`; add test case with `os` field |
+| Safe command triggers ASK | Command not in allow patterns, or ask pattern matches first | Check pattern order in `.ai-dev-foundry/shared/hooks/bash-policy/bash-patterns.toml` or OS-specific file; add allow pattern; add test case |
+| OS-specific command triggers ASK | Pattern missing from OS overlay file | Add pattern to `.ai-dev-foundry/shared/hooks/bash-policy/bash-patterns.{linux,darwin,windows}.toml`; add test case with `os` field |
 | Safe chain triggers ASK | One segment in the chain is unrecognized | The validator checks each segment independently; add an allow pattern for the unrecognized segment |
 | CI fails: "missing attribution" | New/edited script missing header comments | Add `Source:` and `License:` comments (see Attribution above) |
 | CI fails: agent frontmatter | Missing `name`/`description`/`source`/`license` or invalid YAML | Check frontmatter between `---` delimiters |
 | Pattern regex error in stderr | Invalid regex in `bash-patterns.toml` | Python `re` module syntax applies; check the reported pattern |
-| Hook logs filling disk | Logs at `/tmp/claude-hook-logs/` with 15-day retention | Auto-cleanup runs daily; manual: `rm /tmp/claude-hook-logs/*.log` |
+| Hook logs filling disk | Logs at `/tmp/ai-dev-foundry-hook-logs/` with 15-day retention | Auto-cleanup runs daily; manual: `rm /tmp/ai-dev-foundry-hook-logs/*.log` |
 
 ## CI/CD Notes
 
@@ -155,8 +163,8 @@ tests/                   -- All tests: bash-test-cases.toml, test_validate_bash.
 
 - **No secrets in this repo** -- it is a public config/agent collection
 - **settings.local.json** is committed but intended for local-only permission overrides
-- **Hook logs** go to `/tmp/claude-hook-logs/` (not in repo); only ASK/DENY are logged; ALLOW is silent
-- **Deny patterns** in `bash-patterns.toml` cannot be overridden -- this is by design for safety
+- **Hook logs** go to `/tmp/ai-dev-foundry-hook-logs/` (not in repo); only ASK/DENY are logged; ALLOW is silent
+- **Deny patterns** in `.ai-dev-foundry/shared/hooks/bash-policy/bash-patterns.toml` cannot be overridden -- this is by design for safety
 - **Never push directly to main** -- always branch and PR
 - **Do not add transient/status documentation to the repo** -- use GitHub issues for plans and tracking
 

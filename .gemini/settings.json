@@ -1,0 +1,30 @@
+{
+  "hooks": {
+    "BeforeTool": [
+      {
+        "matcher": "run_shell_command",
+        "hooks": [
+          {
+            "name": "aidf-bash-policy",
+            "type": "command",
+            "command": "$GEMINI_PROJECT_DIR/.gemini/hooks/validate-bash.sh",
+            "timeout": 5000
+          }
+        ]
+      }
+    ],
+    "AfterTool": [
+      {
+        "matcher": "run_shell_command",
+        "hooks": [
+          {
+            "name": "aidf-bash-policy-post",
+            "type": "command",
+            "command": "$GEMINI_PROJECT_DIR/.gemini/hooks/post-bash.sh",
+            "timeout": 5000
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -3,14 +3,6 @@
 #
 # Source: https://github.com/amulya-labs/ai-dev-foundry
 # License: MIT (https://opensource.org/licenses/MIT)
-#
-# These patterns extend the universal base patterns with macOS-specific commands.
-# Sections with the same name as base sections have their patterns APPENDED.
-# New sections are added as-is.
-
-# =============================================================================
-# DENY PATTERNS - macOS-specific catastrophic operations
-# =============================================================================
 
 [deny.system_shutdown]
 description = "macOS shutdown/reboot (extends base)"
@@ -18,10 +10,6 @@ patterns = [
     "^osascript -e.*shut down",
     "^osascript -e.*restart",
 ]
-
-# =============================================================================
-# ASK PATTERNS - macOS-specific risky operations
-# =============================================================================
 
 [ask.service_management]
 description = "macOS service management (extends base)"
@@ -71,10 +59,6 @@ patterns = [
     "^diskutil (erase|partition|mount|unmount|rename|resize|apfs)",
     "^hdiutil (create|attach|detach|convert|resize)",
 ]
-
-# =============================================================================
-# ALLOW PATTERNS - macOS-specific safe operations
-# =============================================================================
 
 [allow.system_readonly]
 description = "macOS read-only system inspection (extends base)"
@@ -142,7 +126,6 @@ patterns = [
 [allow.macos_open_url]
 description = "macOS open command for URLs and safe targets"
 patterns = [
-    # open for directories and specific safe apps
     "^open \\.$",
     "^open \\.\\.$",
     "^open ~/",

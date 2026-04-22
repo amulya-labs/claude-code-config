@@ -7,14 +7,6 @@
 # These patterns extend the universal base patterns with Linux-specific commands.
 # Sections with the same name as base sections have their patterns APPENDED.
 # New sections are added as-is.
-#
-# NOTE: Many Linux commands are already in the base file (bash-patterns.toml)
-# because they were the original defaults. This file adds patterns that were
-# previously missing or are unique to Linux distributions.
-
-# =============================================================================
-# ASK PATTERNS - Linux-specific risky operations
-# =============================================================================
 
 [ask.network_config]
 description = "Linux network configuration (persistent changes)"
@@ -54,10 +46,6 @@ patterns = [
     "^chcon ",
     "^restorecon",
 ]
-
-# =============================================================================
-# ALLOW PATTERNS - Linux-specific safe operations
-# =============================================================================
 
 [allow.systemd_analysis]
 description = "systemd analysis and debugging (read-only)"
@@ -113,13 +101,10 @@ patterns = [
 [allow.linux_network_readonly]
 description = "Linux network inspection (read-only queries)"
 patterns = [
-    # nmcli show/status queries (mutations are in ask.network_config)
     "^nmcli .*(show|status|list)",
     "^nmcli -[tgf]",
-    # Display server inspection
     "^xrandr",
     "^xdpyinfo",
-    # Window manager inspection
     "^wmctrl -l",
     "^wmctrl -d",
 ]

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Claude adapter for the provider-neutral Bash command validator.
+Gemini CLI adapter for the provider-neutral Bash command validator.
 
 Source: https://github.com/amulya-labs/ai-dev-foundry
 License: MIT (https://opensource.org/licenses/MIT)
@@ -21,29 +21,13 @@ validate_command_core = importlib.util.module_from_spec(_spec)
 sys.modules[_spec.name] = validate_command_core
 _spec.loader.exec_module(validate_command_core)
 
-CompiledPattern = validate_command_core.CompiledPattern
-load_config = validate_command_core.load_config
-detect_os = validate_command_core.detect_os
-merge_os_config = validate_command_core.merge_os_config
-compile_patterns = validate_command_core.compile_patterns
-strip_line_continuations = validate_command_core.strip_line_continuations
-split_commands = validate_command_core.split_commands
-validate_command = validate_command_core.validate_command
+
+def _read_tool_input(input_data: dict) -> dict:
+    return input_data.get("tool_input", {}) or input_data.get("toolInput", {})
 
 
 def output_decision(decision: str, reason: str) -> None:
-    """Output JSON decision for Claude Code hook."""
-    print(
-        json.dumps(
-            {
-                "hookSpecificOutput": {
-                    "hookEventName": "PreToolUse",
-                    "permissionDecision": decision,
-                    "permissionDecisionReason": reason,
-                }
-            }
-        )
-    )
+    print(json.dumps({"decision": decision, "reason": reason}))
 
 
 def main() -> None:
@@ -58,12 +42,13 @@ def main() -> None:
     except json.JSONDecodeError:
         sys.exit(0)
 
+    tool_input = _read_tool_input(input_data)
     request = {
-        "provider": "claude",
-        "phase": "pre_tool_use",
-        "tool": "bash",
-        "command": input_data.get("tool_input", {}).get("command", ""),
-        "cwd": input_data.get("cwd", ""),
+        "provider": "gemini",
+        "phase": "before_tool",
+        "tool": "run_shell_command",
+        "command": tool_input.get("command", "") or tool_input.get("commandLine", ""),
+        "cwd": input_data.get("cwd", "") or tool_input.get("directory", ""),
     }
 
     if not request["command"]:
