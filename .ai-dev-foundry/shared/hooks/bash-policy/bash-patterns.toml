@@ -1,4 +1,4 @@
-# Bash command validation patterns for Claude Code PreToolUse hook
+# Bash command validation patterns for provider-neutral CLI hook adapters
 # Patterns are regular expressions matched against commands
 #
 # Source: https://github.com/amulya-labs/ai-dev-foundry
@@ -398,7 +398,7 @@ description = "File removal targeting absolute system paths (outside /tmp and cu
 # Ask when rm targets absolute paths that are NOT:
 #   /tmp/ or /var/tmp/  — temp files (covered by allow.temp_cleanup)
 #   current git repo    — injected dynamically at runtime by _inject_git_root_patterns()
-#                         when Claude is opened inside a git project (cwd has .git)
+#                         when the CLI is opened inside a git project (cwd has .git)
 # Relative-path rm is allowed by allow.file_deletion_relative.
 # Catastrophic rm (/, ~, *, .) is blocked by deny.catastrophic_deletion.
 patterns = [
@@ -538,17 +538,10 @@ patterns = [
     "^let ",
     "^getopts ",
     # ^builtin with negative lookahead: block commands that have ask/deny guards.
-    # Without this, 'builtin eval dangerous' would skip ask.code_execution's eval guard
-    # because deny->ask->allow order means allow matches after ask misses (^eval pattern
-    # won't fire on 'builtin eval ...'). The lookahead re-blocks the dangerous forms.
     "^builtin (?!eval|exec|source|mapfile)\\S",
     "^hash ",
     "^hash$",
     # Control flow keywords - only bare keywords are auto-allowed.
-    # Full constructs (e.g., 'if condition; then cmd; fi') are split by
-    # the validator, and the body commands are validated separately.
-    # NOTE: Patterns with trailing space removed to prevent bypass like
-    # 'then rm -rf /tmp/*' matching '^then '.
     "^for ",
     "^while ",
     "^until ",
@@ -604,8 +597,6 @@ patterns = [
     "^bat",
     "^watch ",
     "^man ",
-    # Match --version/--help at end of command OR before a space/pipe suffix
-    # (e.g. 'bash --version | head -1' needs \s variant, not just $)
     "--version(\\s|$)",
     "--help(\\s|$)",
 ]
@@ -808,8 +799,6 @@ patterns = [
 
 [allow.system_user_info]
 description = "User session and power profile queries (read-only)"
-# Common informational commands that appear in diagnostic sessions
-# but have no side effects and are not covered by existing allow lists.
 patterns = [
     "^who\\b",
     "^last\\b",
@@ -818,10 +807,6 @@ patterns = [
 
 [allow.generic_read_subcommands]
 description = "Any tool using universally read-only subcommand verbs"
-# Covers unknown/new CLI tools that follow '<tool> <verb>' conventions.
-# 'show', 'get', 'inspect', 'export', 'dump' are intentionally excluded:
-# they expose secrets in specific tools (e.g. git show, kubectl get secret -o yaml).
-# These are legitimate dev operations but feel wrong to auto-approve silently.
 patterns = [
     "^[a-z][a-z0-9_-]+ (list|ls)( |$)",
     "^[a-z][a-z0-9_-]+ status( |$)",
@@ -832,10 +817,7 @@ patterns = [
 
 [allow.gsd_framework]
 description = "Get-Shit-Done (GSD) framework commands"
-# GSD runs node commands via gsd-tools.cjs for workstream management,
-# planning, and git operations on .planning/ directories.
 patterns = [
-    # GSD tools CLI (matched anywhere in segment after env-var stripping)
     "gsd-tools\\.cjs",
 ]
 
@@ -848,7 +830,6 @@ patterns = [
     "^parallel",
     "^chronic",
     "^sponge",
-    # Poetry runner
     "^poetrun run ",
 ]
 
@@ -869,20 +850,11 @@ description = "Git and GitHub CLI"
 patterns = [
     "^git ",
     "^gh ",
-    # cd <dir> && git <op>: common pattern for running git in a specific directory.
-    # The validator's split logic already handles this (each segment is validated
-    # independently), so this entry matches the full compound before splitting
-    # as an explicit documentation and fallback.
-    # Positive list of safe verbs: excludes force-push, hard-reset, etc. so
-    # ask.git_destructive is not bypassed if this ever matches as a full compound.
     "^cd .+ && git (add|status|diff|log|show|fetch|pull|checkout|switch|branch|commit|remote|tag|submodule|stash)( |$)",
 ]
 
 [allow.github_lifecycle]
 description = "GitHub CLI lifecycle operations that are reversible or purely additive"
-# gh issue close/reopen: trivially reversible (reopen restores the issue)
-# gh issue comment / gh pr comment: additive only, never destroys data
-# Note: gh pr merge, gh pr close, gh repo delete remain in ask.github_mutations
 patterns = [
     "^gh issue close",
     "^gh issue reopen",
@@ -1061,16 +1033,12 @@ patterns = [
 [allow.local_scripts]
 description = "Local project test and utility scripts"
 patterns = [
-    # Test scripts in tests/ directory
     "^\\./tests/",
     "^tests/",
-    # Utility scripts in scripts/ directory
     "^\\./scripts/",
     "^scripts/",
-    # Common script patterns
     "^\\./bin/",
     "^bin/",
-    # Shell interpreter + known safe directories (e.g. bash scripts/foo.sh)
     "^(bash|sh|zsh) tests/",
     "^(bash|sh|zsh) scripts/",
     "^(bash|sh|zsh) bin/",
@@ -1097,9 +1065,7 @@ patterns = [
     "^ansible ",
     "^vagrant",
     "^packer",
-    # Supabase
     "^supabase",
-    # Firecrawl (read-only scraping/search CLI)
     "^firecrawl",
 ]
 
@@ -1167,9 +1133,6 @@ patterns = [
 
 [allow.find_exec_readonly]
 description = "find -exec continuation segments with read-only commands"
-# When 'find ... -exec cmd {} \; -exec cmd2 {} \;' is split on ';', the second
-# and subsequent -exec clauses become orphaned segments starting with '-exec'.
-# These are safe to allow when the command is a read-only viewer.
 patterns = [
     "^-exec\\s+(cat|echo|head|tail|grep|wc|stat|file|ls|print|printf)\\s",
 ]
@@ -1247,11 +1210,7 @@ patterns = [
 
 [allow.kubernetes]
 description = "Kubernetes (mutations blocked by ask patterns)"
-# NOTE: kubectl exec is excluded here - it's handled by allow.kubernetes_exec_readonly
-# for read-only commands, and falls through to ask for everything else
 patterns = [
-    # Negative lookahead to exclude 'exec' subcommand, with \S to ensure
-    # we check after consuming ALL whitespace (prevents double-space bypass)
     "^kubectl\\s+(?!exec\\b)\\S",
     "^k3s kubectl\\s+(?!exec\\b)\\S",
     "^k9s",
@@ -1266,22 +1225,16 @@ patterns = [
 
 [allow.kubernetes_exec_readonly]
 description = "kubectl exec with read-only commands (other exec falls through to ask)"
-# NOTE: Only truly read-only commands are allowed here. Commands that can execute
-# arbitrary code (env with args, awk, sed, find) are excluded for security.
 patterns = [
-    # Read file contents
     "^kubectl exec .* -- cat ",
     "^kubectl exec .* -- head ",
     "^kubectl exec .* -- tail ",
     "^kubectl exec .* -- less ",
     "^kubectl exec .* -- more ",
-    # List/inspect files (note: find excluded due to -exec capability)
     "^kubectl exec .* -- ls",
     "^kubectl exec .* -- stat ",
     "^kubectl exec .* -- file ",
     "^kubectl exec .* -- wc ",
-    # Environment and process info
-    # NOTE: Only bare 'env' allowed - 'env VAR=x cmd' can run arbitrary commands
     "^kubectl exec .* -- env$",
     "^kubectl exec .* -- printenv",
     "^kubectl exec .* -- ps ",
@@ -1293,19 +1246,15 @@ patterns = [
     "^kubectl exec .* -- pwd$",
     "^kubectl exec .* -- hostname",
     "^kubectl exec .* -- uname",
-    # Search (note: awk/sed excluded - can execute commands or modify files)
     "^kubectl exec .* -- grep ",
-    # Disk/network info (note: ip excluded - can modify network config)
     "^kubectl exec .* -- df ",
     "^kubectl exec .* -- df$",
     "^kubectl exec .* -- du ",
     "^kubectl exec .* -- free",
     "^kubectl exec .* -- netstat",
     "^kubectl exec .* -- ss ",
-    # Date/time
     "^kubectl exec .* -- date",
     "^kubectl exec .* -- uptime",
-    # Same patterns for k3s (only safe commands)
     "^k3s kubectl exec .* -- cat ",
     "^k3s kubectl exec .* -- ls",
     "^k3s kubectl exec .* -- env$",
@@ -1317,20 +1266,12 @@ patterns = [
 
 [allow.kubernetes_exec_database]
 description = "kubectl exec database CLI tools (mutations blocked by ask.kubectl_exec_db_mutations)"
-# NOTE: Destructive SQL (DROP, DELETE, INSERT, etc.) is caught by
-# ask.kubectl_exec_db_mutations which is evaluated BEFORE these allow patterns.
-# What remains are read-only queries (SELECT, \d, \dt, etc.) and
-# psql meta-commands which are safe to auto-approve.
 patterns = [
-    # Direct psql (any flags like -U, -d, -c, -t, -tc, etc.)
     "^kubectl exec .* -- psql ",
     "^kubectl exec .* -- psql$",
-    # psql with env prefix (PGPASSWORD=...)
     "^kubectl exec .* -- env .* psql",
-    # Direct mysql
     "^kubectl exec .* -- mysql ",
     "^kubectl exec .* -- mysql$",
-    # Same for k3s
     "^k3s kubectl exec .* -- psql ",
     "^k3s kubectl exec .* -- env .* psql",
     "^k3s kubectl exec .* -- mysql ",
@@ -1338,28 +1279,12 @@ patterns = [
 
 [allow.kubernetes_exec_shell_commands]
 description = "kubectl exec with bash -c wrappers and common read-only inner commands"
-# The bash -c wrapper is the standard Kubernetes pattern for setting env vars
-# (e.g. PGPASSWORD) before invoking a database client.
-# Safety: ask.kubectl_exec_db_mutations (evaluated before allow patterns) catches
-# destructive SQL (DROP, DELETE, INSERT, etc.) even through bash -c wrappers,
-# since its patterns use .* to match across the 'bash -c' prefix.
-# ask.dangerous_pipelines catches 'find.*-exec.*rm' and 'find.*-delete' patterns.
-# Only non-destructive operations reach these allow patterns.
 patterns = [
-    # bash -c wrapping psql with env var prefix (e.g. PGPASSWORD=$(kubectl get secret ...))
     "kubectl exec .* -- bash -c '.*psql",
     "kubectl exec .* -- bash -c \".*psql",
-    # HTTP health checks and API endpoint inspection inside pods.
-    # Tradeoff: curl with -o/--output can write to arbitrary paths inside the pod.
-    # This is accepted because: (a) blast radius is pod-local, (b) the primary use
-    # case is health checks (curl http://localhost:8080/healthz) which far outweigh
-    # the file-write risk. Future: consider asking if '-o ' or '--output ' is present.
     "kubectl exec .* -- wget ",
     "kubectl exec .* -- curl ",
-    # File search inside pods (find.*-exec.*rm, find.*-exec.*mv, find.*-delete
-    # are caught by ask.dangerous_pipelines which is evaluated before allow patterns)
     "kubectl exec .* -- find ",
-    # k3s variants (same tradeoffs apply as kubectl above)
     "k3s kubectl exec .* -- bash -c '.*psql",
     "k3s kubectl exec .* -- bash -c \".*psql",
     "k3s kubectl exec .* -- wget ",
@@ -1392,16 +1317,11 @@ description = "Virtual environment binaries"
 patterns = [
     "^\\.venv/bin/",
     "^venv/bin/",
-    # Absolute paths to .venv/bin/ (worktree agents use absolute paths)
     "/\\.venv/bin/",
     "/venv/bin/",
-    # Poetry virtualenvs (common path: ~/.cache/pypoetry/virtualenvs/*/bin/)
     "pypoetry/virtualenvs/.*/bin/",
-    # Conda environments
     "conda.*/envs/.*/bin/",
-    # pipx
     "pipx/venvs/.*/bin/",
-    # Temporary venvs in /tmp (e.g. /tmp/test-venv/bin/pip, /tmp/test-venv/bin/pytest)
     "^/tmp/[^/]+/bin/",
 ]
 
@@ -1420,16 +1340,13 @@ patterns = [
     "^crontab -l",
     "^service .* status",
     "^getent ",
-    # locale: add word boundary to avoid matching localectl
     "^locale(\\s|$)",
-    # timedatectl: only read-only subcommands
     "^timedatectl$",
     "^timedatectl status",
     "^timedatectl timesync-status",
     "^timedatectl show-timesync",
     "^timedatectl show$",
     "^timedatectl show ",
-    # loginctl: only read-only subcommands
     "^loginctl list-sessions",
     "^loginctl session-status",
     "^loginctl list-users",
@@ -1443,7 +1360,6 @@ patterns = [
 [allow.terminal_multiplexers]
 description = "Terminal multiplexer read-only operations"
 patterns = [
-    # tmux read-only commands - list/show/display
     "^tmux ls$",
     "^tmux ls ",
     "^tmux list-",
@@ -1454,7 +1370,6 @@ patterns = [
     "^tmux info",
     "^tmux server-info",
     "^tmux wait-for",
-    # screen read-only commands
     "^screen -ls",
     "^screen -list",
     "^screen -wipe",
@@ -1530,21 +1445,10 @@ patterns = [
 
 [allow.file_deletion_relative]
 description = "File removal on relative paths (project files, build artifacts)"
-# Safe because: relative paths are within the project directory.
-# Catastrophic patterns (/, ~, *, .) are caught by deny.catastrophic_deletion
-# which runs BEFORE this allow pattern.
-# $ is excluded from the first-char class to prevent 'rm -rf $HOME' from being auto-approved.
 patterns = [
-    # rm with any flags + relative path (not starting with /, ~, or $)
     "^rm\\s+(-[a-zA-Z]+\\s+)*[^-/~$\\s]",
-    # rm with any flags + explicit ./ prefix
     "^rm\\s+(-[a-zA-Z]+\\s+)*\\./",
 ]
-
-# allow.project_file_deletion was removed: project file deletion is now handled
-# dynamically at runtime via _inject_git_root_patterns() in validate-bash.py.
-# When Claude is invoked inside a git repo (cwd/.git exists), rm on any path
-# under that repo root is auto-approved and the .git directory is protected.
 
 [allow.temp_cleanup]
 description = "Temp file cleanup"
@@ -1567,18 +1471,14 @@ patterns = [
     "^wl-copy",
     "^wl-paste",
     "^xdg-open ",
-    # Restrict open to URLs only; bare 'open -a Terminal' or 'open malware.app' would prompt
     "^open\\s+https?://",
 ]
 
 [allow.file_truncate]
 description = "File truncation on relative paths, /tmp, and /var/tmp"
 patterns = [
-    # truncate with flags + relative path (not starting with /, ~, or $)
     "^truncate\\s+(-[a-zA-Z]+\\s+)*[^-/~$\\s]",
-    # truncate with flags + explicit ./ prefix
     "^truncate\\s+(-[a-zA-Z]+\\s+)*\\./",
-    # truncate on /tmp/ and /var/tmp/ (log files, test fixtures)
     "^truncate\\s+(-[a-zA-Z]+\\s+)*/tmp/",
     "^truncate\\s+(-[a-zA-Z]+\\s+)*/var/tmp/",
 ]
@@ -1596,32 +1496,21 @@ patterns = [
 
 [allow.node_modules_bin]
 description = "Local node_modules/.bin executables (project-local dev tools)"
-# These are the same tools as npx/vitest/tsc/eslint but invoked directly
-# via node_modules/.bin/ path (relative or absolute). Safe because they
-# run project-local versions, same as the already-allowed bare commands.
 patterns = [
     "^node_modules/\\.bin/",
     "^\\./node_modules/\\.bin/",
-    # Absolute paths to node_modules/.bin/ (e.g. /home/user/project/node_modules/.bin/tsc)
     "^/[\\w./-]+/node_modules/\\.bin/",
 ]
 
 [allow.project_executables]
 description = "Running project executables from relative paths"
-# Executables in the current directory or subdirectories. These are
-# project-local binaries (compiled Go, Rust, etc.) that are safe to run.
 patterns = [
     "^\\./[\\w.-]+",
-    # Relative path executables (e.g. server/myapp, bin/tool)
-    # First component must start with a word char (not . or -) to prevent
-    # path traversal like ../../bin/cmd from being auto-allowed.
     "^[\\w][\\w.-]*/[\\w.-]+",
 ]
 
 [allow.find_readonly]
 description = "find with read-only actions (grep, cat, ls, wc, file, stat)"
-# find -exec with read-only commands is safe. The dangerous_pipelines ask
-# pattern only catches find -exec rm/mv/chmod/delete.
 patterns = [
     "^find .+ -exec (grep|cat|ls|wc|file|stat|head|tail|basename|dirname|sha256sum|md5sum|cksum)\\b",
     "^find .+ -print",
@@ -1629,17 +1518,12 @@ patterns = [
 
 [allow.xargs_readonly]
 description = "xargs with read-only commands (grep, cat, ls, wc, basename)"
-# xargs piping to read-only commands is safe. The dangerous_pipelines ask
-# pattern only catches xargs rm/mv/chmod/chown.
 patterns = [
     "xargs (grep|cat|ls|wc|file|stat|head|tail|basename|dirname|sha256sum|md5sum|cksum)\\b",
 ]
 
 [allow.git_merge_local]
 description = "Git merge of local branches (not squash or strategy overrides)"
-# Local branch merges are standard workflow and locally reversible.
-# Squash merges and strategy overrides (-X theirs/ours) remain in ask.
-# origin/ merges are already excluded from ask via negative lookahead.
 patterns = [
     "^git merge --ff-only\\b",
     "^git merge --no-edit\\b",
@@ -1660,9 +1544,6 @@ patterns = [
 
 [allow.git_force_with_lease]
 description = "Git push with --force-with-lease (safe force push)"
-# --force-with-lease is the safe alternative to --force: it refuses to
-# overwrite remote commits that aren't in the local ref, preventing
-# accidental data loss from concurrent pushes.
 patterns = [
     "^git push --force-with-lease\\b",
 ]
@@ -1675,11 +1556,6 @@ patterns = [
 
 [allow.npm_install_local]
 description = "npm install from package.json (no registry package specified)"
-# Bare 'npm install' (with no package name) installs from local package.json.
-# This is a routine dev operation with no supply-chain risk.
-# The ask.package_manager_install pattern uses a positive lookahead to only
-# catch 'npm install <pkg>', but 'npm install 2>&1' still matches because
-# '2>&1' looks like a package name. This pattern explicitly allows it.
 patterns = [
     "^npm install\\s*$",
     "^npm install\\s+2>",
@@ -1700,8 +1576,6 @@ patterns = [
 
 [allow.bash_project_scripts]
 description = "Running project scripts via bash/sh with absolute paths"
-# Covers: bash /home/user/project/scripts/foo.sh
-# The allow.local_scripts section already covers relative paths.
 patterns = [
     "^(bash|sh|zsh) /[\\w./-]+/scripts/",
     "^(bash|sh|zsh) /[\\w./-]+/tests/",

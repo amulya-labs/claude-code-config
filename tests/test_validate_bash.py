@@ -15,12 +15,13 @@ from unittest.mock import patch
 
 import pytest
 
-# Import validate-bash.py (hyphenated filename requires importlib)
-HOOKS_DIR = Path(__file__).parent.parent / ".claude" / "hooks"
+# Import the provider-neutral Bash policy engine (hyphenated filename requires importlib)
+HOOKS_DIR = Path(__file__).parent.parent / ".ai-dev-foundry" / "shared" / "hooks" / "bash-policy"
 _spec = importlib.util.spec_from_file_location(
-    "validate_bash", HOOKS_DIR / "validate-bash.py"
+    "validate_bash", HOOKS_DIR / "validate-command.py"
 )
 validate_bash = importlib.util.module_from_spec(_spec)
+sys.modules[_spec.name] = validate_bash
 _spec.loader.exec_module(validate_bash)
 
 # Python 3.11+ has tomllib built-in

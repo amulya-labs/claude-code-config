@@ -28,6 +28,10 @@ WITH_GHA_WORKFLOWS=false
 
 # Provider registry — to add a new provider, add entries here only
 # (Variables are referenced via indirect expansion; SC2034 is suppressed per-variable)
+# Shared provider-neutral assets are installed once under this directory and can
+# be reused by multiple CLI adapters (Claude, Codex, Gemini CLI, OpenCode, etc.).
+SHARED_CONFIG_DIR=".ai-dev-foundry"
+
 # shellcheck disable=SC2034
 PROVIDER_CLAUDE_WORKFLOWS="claude.yml claude-code-review.yml"
 # shellcheck disable=SC2034
@@ -41,6 +45,9 @@ PROVIDER_CLAUDE_CONFIG_DIR=".claude"
 # Supported item types: "agents" (dir), "hooks" (dir), "settings.json" (file)
 # shellcheck disable=SC2034
 PROVIDER_CLAUDE_CONFIG_ITEMS="agents hooks settings.json"
+# Optional shared items installed under $SHARED_CONFIG_DIR
+# shellcheck disable=SC2034
+PROVIDER_CLAUDE_SHARED_ITEMS="shared/hooks/bash-policy"
 
 # shellcheck disable=SC2034
 PROVIDER_GEMINI_WORKFLOWS="gemini-code-review.yml"
@@ -54,7 +61,25 @@ PROVIDER_GEMINI_WORKFLOW_SCRIPTS="gemini_review.py gemini_review_workflow.sh"
 # Extra files to install alongside workflows (relative to repo root)
 # shellcheck disable=SC2034
 PROVIDER_GEMINI_EXTRA_FILES=".github/gemini-cache-manifest.yml"
-# Gemini has no local config dir yet — leave unset
+# shellcheck disable=SC2034
+PROVIDER_GEMINI_CONFIG_DIR=".gemini"
+# shellcheck disable=SC2034
+PROVIDER_GEMINI_CONFIG_ITEMS="hooks settings.json"
+# shellcheck disable=SC2034
+PROVIDER_GEMINI_SHARED_ITEMS="shared/hooks/bash-policy"
+
+# shellcheck disable=SC2034
+PROVIDER_CODEX_WORKFLOWS=""
+# shellcheck disable=SC2034
+PROVIDER_CODEX_SECRETS=""
+# shellcheck disable=SC2034
+PROVIDER_CODEX_LABEL="Codex"
+# shellcheck disable=SC2034
+PROVIDER_CODEX_CONFIG_DIR=".codex"
+# shellcheck disable=SC2034
+PROVIDER_CODEX_CONFIG_ITEMS="hooks hooks.json"
+# shellcheck disable=SC2034
+PROVIDER_CODEX_SHARED_ITEMS="shared/hooks/bash-policy"
 
 # shellcheck disable=SC2034
 PROVIDER_NOTEBOOKLM_WORKFLOWS="sync-notebooklm.yml"
@@ -173,8 +198,14 @@ download_provider_workflows() {
     local label="${!label_var}"
     local secrets="${!secrets_var}"
     local workflows="${!workflows_var}"
+    local scripts_var="PROVIDER_${upper}_WORKFLOW_SCRIPTS"
+    local extra_var="PROVIDER_${upper}_EXTRA_FILES"
     local -a wf_list
     read -ra wf_list <<< "$workflows"
+
+    if [[ ${#wf_list[@]} -eq 0 ]] && [[ ! -v "$scripts_var" || -z "${!scripts_var}" ]] && [[ ! -v "$extra_var" || -z "${!extra_var}" ]]; then
+        return 0
+    fi
 
     info "Fetching ${label} GitHub Actions workflows..."
     local workflow_dir=".github/workflows"
@@ -189,7 +220,6 @@ download_provider_workflows() {
     done
 
     # Also download workflow helper scripts if defined for this provider
-    local scripts_var="PROVIDER_${upper}_WORKFLOW_SCRIPTS"
     if [[ -v "$scripts_var" ]] && [[ -n "${!scripts_var}" ]]; then
         local -a script_list
         read -ra script_list <<< "${!scripts_var}"
@@ -207,7 +237,6 @@ download_provider_workflows() {
     fi
 
     # Download extra files if defined for this provider
-    local extra_var="PROVIDER_${upper}_EXTRA_FILES"
     if [[ -v "$extra_var" ]] && [[ -n "${!extra_var}" ]]; then
         local -a extra_list
         read -ra extra_list <<< "${!extra_var}"
@@ -239,6 +268,18 @@ post_download_claude() {
         chmod +x "${config_dir}/hooks/"*.sh 2>/dev/null || true
         chmod +x "${config_dir}/hooks/"*.py 2>/dev/null || true
     fi
+    if [ -d "${SHARED_CONFIG_DIR}/shared/hooks/bash-policy" ]; then
+        chmod +x "${SHARED_CONFIG_DIR}/shared/hooks/bash-policy/"*.sh 2>/dev/null || true
+        chmod +x "${SHARED_CONFIG_DIR}/shared/hooks/bash-policy/"*.py 2>/dev/null || true
+    fi
+}
+
+post_download_gemini() {
+    post_download_claude "$1"
+}
+
+post_download_codex() {
+    post_download_claude "$1"
 }
 
 # Merge upstream settings.json into an existing local settings.json.
@@ -324,54 +365,70 @@ download_provider_config() {
     upper=$(printf '%s' "$provider" | tr '[:lower:]' '[:upper:]')
     local config_dir_var="PROVIDER_${upper}_CONFIG_DIR"
     local config_items_var="PROVIDER_${upper}_CONFIG_ITEMS"
-
-    # Provider has no local config dir — nothing to download
-    [[ ! -v "$config_dir_var" ]] && return 0
-
-    local config_dir="${!config_dir_var}"
-    local config_items="${!config_items_var:-}"
+    local shared_items_var="PROVIDER_${upper}_SHARED_ITEMS"
+    local shared_items="${!shared_items_var:-}"
     local label_var="PROVIDER_${upper}_LABEL"
     local label="${!label_var}"
 
-    info "Syncing ${label} local config in ${config_dir}..."
-    mkdir -p "$config_dir"
+    if [[ ! -v "$config_dir_var" ]] && [[ -z "$shared_items" ]]; then
+        return 0
+    fi
 
-    local item
-    local -a _items
-    read -ra _items <<< "$config_items"
-    for item in "${_items[@]}"; do
-        if [[ "$item" == *.* ]]; then
-            # Single file (e.g. settings.json)
-            info "Fetching ${item}..."
-            local tmp_file
-            tmp_file=$(mktemp)
-            if curl -fsSL "$RAW_BASE/.${provider}/${item}" -o "$tmp_file" 2>/dev/null; then
-                if [[ "$item" == "settings.json" ]] && [[ -f "${config_dir}/${item}" ]] && [[ -s "${config_dir}/${item}" ]]; then
-                    # Merge upstream settings into existing local settings
-                    local merged_file
-                    merged_file=$(mktemp)
-                    if merge_settings_json "$tmp_file" "${config_dir}/${item}" "$merged_file"; then
-                        mv "$merged_file" "${config_dir}/${item}"
-                        info "  Merged ${item} (preserved local customizations)"
+    if [[ -v "$config_dir_var" ]]; then
+        local config_dir="${!config_dir_var}"
+        local config_items="${!config_items_var:-}"
+
+        info "Syncing ${label} local config in ${config_dir}..."
+        mkdir -p "$config_dir"
+
+        local item
+        local -a _items
+        read -ra _items <<< "$config_items"
+        for item in "${_items[@]}"; do
+            if [[ "$item" == *.* ]]; then
+                # Single file (e.g. settings.json)
+                info "Fetching ${item}..."
+                local tmp_file
+                tmp_file=$(mktemp)
+                if curl -fsSL "$RAW_BASE/.${provider}/${item}" -o "$tmp_file" 2>/dev/null; then
+                    if [[ "$item" == "settings.json" ]] && [[ -f "${config_dir}/${item}" ]] && [[ -s "${config_dir}/${item}" ]]; then
+                        # Merge upstream settings into existing local settings
+                        local merged_file
+                        merged_file=$(mktemp)
+                        if merge_settings_json "$tmp_file" "${config_dir}/${item}" "$merged_file"; then
+                            mv "$merged_file" "${config_dir}/${item}"
+                            info "  Merged ${item} (preserved local customizations)"
+                        else
+                            warn "  Merge failed for ${item} — overwriting with upstream"
+                            cp "$tmp_file" "${config_dir}/${item}"
+                            rm -f "$merged_file"
+                        fi
                     else
-                        warn "  Merge failed for ${item} — overwriting with upstream"
                         cp "$tmp_file" "${config_dir}/${item}"
-                        rm -f "$merged_file"
+                        info "  Downloaded ${item}"
                     fi
+                    rm -f "$tmp_file"
                 else
-                    cp "$tmp_file" "${config_dir}/${item}"
-                    info "  Downloaded ${item}"
+                    rm -f "$tmp_file"
+                    warn "  ${item} not found (optional)"
                 fi
-                rm -f "$tmp_file"
             else
-                rm -f "$tmp_file"
-                warn "  ${item} not found (optional)"
+                # Directory
+                download_dir ".${provider}/${item}" "${config_dir}/${item}"
             fi
-        else
-            # Directory
-            download_dir ".${provider}/${item}" "${config_dir}/${item}"
-        fi
-    done
+        done
+    fi
+
+    if [[ -n "$shared_items" ]]; then
+        info "Syncing shared hook core in ${SHARED_CONFIG_DIR}..."
+        mkdir -p "$SHARED_CONFIG_DIR"
+        local shared_item
+        local -a _shared_items
+        read -ra _shared_items <<< "$shared_items"
+        for shared_item in "${_shared_items[@]}"; do
+            download_dir "${SHARED_CONFIG_DIR}/${shared_item}" "${SHARED_CONFIG_DIR}/${shared_item}"
+        done
+    fi
 
     # Provider-specific post-download steps
     local post_fn="post_download_${provider}"
@@ -406,6 +463,10 @@ stage_downloaded_files() {
         if [[ -v "$_cdir_var" ]]; then
             git add "${!_cdir_var}" 2>/dev/null || true
         fi
+        local _shared_var="PROVIDER_${_up}_SHARED_ITEMS"
+        if [[ -v "$_shared_var" ]] && [[ -n "${!_shared_var}" ]]; then
+            git add "$SHARED_CONFIG_DIR" 2>/dev/null || true
+        fi
         local _extra_var="PROVIDER_${_up}_EXTRA_FILES"
         if [[ -v "$_extra_var" ]] && [[ -n "${!_extra_var}" ]]; then
             local -a _extra_list
@@ -425,7 +486,20 @@ print_provider_summary() {
         _up=$(printf '%s' "$_p" | tr '[:lower:]' '[:upper:]')
         local label_var="PROVIDER_${_up}_LABEL"
         local secrets_var="PROVIDER_${_up}_SECRETS"
-        info "${!label_var} workflows ${verb} in .github/workflows/"
+        local config_dir_var="PROVIDER_${_up}_CONFIG_DIR"
+        local shared_var="PROVIDER_${_up}_SHARED_ITEMS"
+        local workflows_var="PROVIDER_${_up}_WORKFLOWS"
+        local scripts_var="PROVIDER_${_up}_WORKFLOW_SCRIPTS"
+        local extra_var="PROVIDER_${_up}_EXTRA_FILES"
+        if [[ -v "$config_dir_var" ]]; then
+            info "${!label_var} local config ${verb} in ${!config_dir_var}/"
+        fi
+        if [[ -v "$shared_var" ]] && [[ -n "${!shared_var}" ]]; then
+            info "${!label_var} shared hook core ${verb} in ${SHARED_CONFIG_DIR}/"
+        fi
+        if [[ -v "$workflows_var" && -n "${!workflows_var}" ]] || [[ -v "$scripts_var" && -n "${!scripts_var}" ]] || [[ -v "$extra_var" && -n "${!extra_var}" ]]; then
+            info "${!label_var} workflows ${verb} in .github/workflows/"
+        fi
         local -a _secrets_list
         read -ra _secrets_list <<< "${!secrets_var}"
         for _s in "${_secrets_list[@]}"; do
@@ -506,22 +580,29 @@ usage_claude() {
     echo ""
     echo "Options:"
     echo "  --gemini               Also install Gemini PR review workflow"
-    echo "  --ai <providers>       Comma-separated provider list (e.g. claude,gemini,notebooklm)"
+    echo "  --ai <providers>       Comma-separated provider list (e.g. claude,gemini,codex,notebooklm)"
     echo "  --with-gha-workflows   Also install extra workflow templates from"
     echo "                         github-workflow-templates/ in the source repo"
     echo ""
     echo "This downloads:"
     echo "  .claude/agents/   - Reusable Claude Code agents"
-    echo "  .claude/hooks/    - PreToolUse hooks (e.g., bash validation)"
+    echo "  .claude/hooks/    - Claude hook adapters"
+    echo "  .ai-dev-foundry/shared/hooks/bash-policy/ - Shared Bash policy engine"
     echo "  .claude/settings.json - Hook configuration"
     echo "  .github/workflows/claude.yml             - @claude mention handler"
     echo "  .github/workflows/claude-code-review.yml - Auto PR review"
     echo "  (requires CLAUDE_CODE_OAUTH_TOKEN secret in repo)"
     echo ""
     echo "With --gemini or --ai claude,gemini, also downloads:"
+    echo "  .gemini/hooks/                             - Gemini CLI hook adapters"
+    echo "  .gemini/settings.json                      - Gemini CLI hook configuration"
     echo "  .github/workflows/gemini-code-review.yml          - Gemini PR review (Flash + Pro)"
     echo "  .github/workflows/scripts/gemini_review.py        - Inline review Python helper"
     echo "  (requires GEMINI_API_KEY secret in repo)"
+    echo ""
+    echo "With --ai claude,codex, also downloads:"
+    echo "  .codex/hooks/      - Codex hook adapters"
+    echo "  .codex/hooks.json  - Codex hook configuration"
     echo ""
     echo "With --with-gha-workflows, also downloads:"
     echo "  Extra workflow templates from github-workflow-templates/"
@@ -531,10 +612,13 @@ usage_gemini() {
     echo "Usage: $0 gemini <command> [options]"
     echo ""
     echo "Commands:"
-    echo "  install   Add Gemini workflow to your project (first-time setup)"
-    echo "  update    Pull the latest Gemini workflow"
+    echo "  install   Add Gemini CLI hooks and workflow to your project (first-time setup)"
+    echo "  update    Pull the latest Gemini CLI hooks and workflow"
     echo ""
     echo "This downloads:"
+    echo "  .gemini/hooks/                             - Gemini CLI hook adapters"
+    echo "  .gemini/settings.json                      - Gemini CLI hook configuration"
+    echo "  .ai-dev-foundry/shared/hooks/bash-policy/  - Shared Bash policy engine"
     echo "  .github/workflows/gemini-code-review.yml          - Gemini PR review (Flash + Pro)"
     echo "  .github/workflows/scripts/gemini_review.py        - Inline review Python helper"
     echo "  (requires GEMINI_API_KEY secret in your repo settings)"
@@ -543,6 +627,24 @@ usage_gemini() {
     echo "  --with-gha-workflows   Also install extra workflow templates"
     echo "  --ai <providers>       Comma-separated provider list (accepted; use 'gemini' or 'all' instead)"
     echo "  --gemini               Equivalent to using the 'gemini' subcommand (accepted)"
+}
+
+usage_codex() {
+    echo "Usage: $0 codex <command> [options]"
+    echo ""
+    echo "Commands:"
+    echo "  install   Add Codex hooks to your project (first-time setup)"
+    echo "  update    Pull the latest Codex hooks"
+    echo ""
+    echo "This downloads:"
+    echo "  .codex/hooks/                             - Codex hook adapters"
+    echo "  .codex/hooks.json                         - Codex hook configuration"
+    echo "  .ai-dev-foundry/shared/hooks/bash-policy/ - Shared Bash policy engine"
+    echo ""
+    echo "Options:"
+    echo "  --with-gha-workflows   Also install extra workflow templates"
+    echo "  --ai <providers>       Comma-separated provider list"
+    echo "  --gemini               Also install Gemini workflows/hooks"
 }
 
 usage_notebooklm() {
@@ -599,8 +701,13 @@ usage_main() {
         _pname="${_pname%_LABEL}"
         _plower=$(printf '%s' "$_pname" | tr '[:upper:]' '[:lower:]')
         _cfg_var="PROVIDER_${_pname}_CONFIG_DIR"
+        local _shared_var="PROVIDER_${_pname}_SHARED_ITEMS"
         if [[ -v "$_cfg_var" ]]; then
-            _descr="config, hooks, and GitHub Actions workflows"
+            if [[ -v "$_shared_var" ]]; then
+                _descr="provider adapters + shared hook core + GitHub Actions workflows"
+            else
+                _descr="config, hooks, and GitHub Actions workflows"
+            fi
         else
             _descr="GitHub Actions workflows only"
         fi
@@ -614,14 +721,15 @@ usage_main() {
     echo ""
     echo "Global options:"
     echo "  --gemini               Also install Gemini workflows (with claude)"
-    echo "  --ai <providers>       Comma-separated provider list (e.g. claude,gemini)"
+    echo "  --ai <providers>       Comma-separated provider list (e.g. claude,gemini,codex)"
     echo "  --with-gha-workflows   Also install extra workflow templates"
     echo ""
     echo "Quick start:"
     echo "  $0 claude install            # Claude agents, hooks, settings + workflows"
-    echo "  $0 gemini install            # Gemini PR review workflow"
+    echo "  $0 gemini install            # Gemini CLI hooks + PR review workflow"
+    echo "  $0 codex install             # Codex hooks"
     echo "  $0 all install               # All providers"
-    echo "  $0 claude install --gemini   # Claude + Gemini"
+    echo "  $0 claude install --ai gemini,codex   # Claude + Gemini + Codex"
     echo ""
     echo "Run '$0 <provider>' for provider-specific usage."
 }
@@ -713,7 +821,7 @@ handle_provider_command() {
 }
 
 case "$AGENT" in
-    claude|gemini|notebooklm)
+    claude|gemini|codex|notebooklm)
         handle_provider_command "$AGENT" "${1:-}"
         ;;
     all)

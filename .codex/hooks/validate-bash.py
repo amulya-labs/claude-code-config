@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Claude adapter for the provider-neutral Bash command validator.
+Codex adapter for the provider-neutral Bash command validator.
 
 Source: https://github.com/amulya-labs/ai-dev-foundry
 License: MIT (https://opensource.org/licenses/MIT)
@@ -22,8 +22,11 @@ sys.modules[_spec.name] = validate_command_core
 _spec.loader.exec_module(validate_command_core)
 
 
+def _read_tool_input(input_data: dict) -> dict:
+    return input_data.get("tool_input", {}) or input_data.get("toolInput", {})
+
+
 def output_decision(decision: str, reason: str) -> None:
-    """Output JSON decision for Claude Code hook."""
     print(
         json.dumps(
             {
@@ -49,12 +52,13 @@ def main() -> None:
     except json.JSONDecodeError:
         sys.exit(0)
 
+    tool_input = _read_tool_input(input_data)
     request = {
-        "provider": "claude",
+        "provider": "codex",
         "phase": "pre_tool_use",
         "tool": "bash",
-        "command": input_data.get("tool_input", {}).get("command", ""),
-        "cwd": input_data.get("cwd", ""),
+        "command": tool_input.get("command", "") or tool_input.get("commandLine", ""),
+        "cwd": input_data.get("cwd", "") or tool_input.get("directory", ""),
     }
 
     if not request["command"]:

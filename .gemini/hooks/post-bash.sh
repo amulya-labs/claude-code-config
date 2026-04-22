@@ -1,5 +1,5 @@
 #!/bin/bash
-# Claude Code PostToolUse hook adapter for the shared Bash policy engine.
+# Gemini CLI AfterTool hook adapter for the shared Bash policy engine.
 #
 # Source: https://github.com/amulya-labs/ai-dev-foundry
 # License: MIT (https://opensource.org/licenses/MIT)
@@ -15,12 +15,13 @@ aidf_init_log_dir
 [[ -z "$AIDF_HOOK_LOG_DIR" ]] && exit 0
 
 INPUT=$(cat)
-PROJECT=$(aidf_extract_project_from_claude_input "$INPUT")
+PROJECT=$(aidf_extract_project_from_json_input "$INPUT")
 COMMAND=$(printf '%s' "$INPUT" | python3 -c "
 import sys, json
 try:
     data = json.load(sys.stdin)
-    print(data.get('tool_input', {}).get('command', '').replace('\n', '\\\\n'))
+    tool_input = data.get('tool_input') or data.get('toolInput') or {}
+    print((tool_input.get('command') or tool_input.get('commandLine') or '').replace('\n', '\\\\n'))
 except Exception:
     print('')
 " 2>/dev/null)
@@ -32,7 +33,7 @@ DECISION=$(printf '%s' "$INPUT" | python3 "$SCRIPT_DIR/validate-bash.py" "$CONFI
 import sys, json
 try:
     data = json.load(sys.stdin)
-    print(data.get('hookSpecificOutput', {}).get('permissionDecision', ''))
+    print(data.get('decision', ''))
 except Exception:
     print('')
 " 2>/dev/null)

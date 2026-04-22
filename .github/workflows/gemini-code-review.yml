@@ -4,7 +4,6 @@
 name: Gemini Code Review
 
 env:
-  WORKFLOW_VERSION: ${{ github.sha }}
   INLINE_ATTRIBUTION: "\n\n---\n_\U0001f48e [Gemini](https://gemini.google.com/) via [ai-dev-foundry](https://github.com/amulya-labs/ai-dev-foundry)_"
 
 on:

@@ -3,14 +3,6 @@
 #
 # Source: https://github.com/amulya-labs/ai-dev-foundry
 # License: MIT (https://opensource.org/licenses/MIT)
-#
-# These patterns cover Windows commands invoked from Git Bash, MSYS2, or Cygwin.
-# NOTE: WSL reports sys.platform as 'linux', so WSL users get Linux patterns.
-# Native PowerShell validation is out of scope (the hook is a Bash script).
-
-# =============================================================================
-# DENY PATTERNS - Windows-specific catastrophic operations
-# =============================================================================
 
 [deny.windows_destructive]
 description = "Windows destructive system commands"
@@ -20,10 +12,6 @@ patterns = [
     "^powershell.*Remove-Item.*-Recurse.*C:\\\\Windows",
     "^reg delete.*HKLM",
 ]
-
-# =============================================================================
-# ASK PATTERNS - Windows-specific risky operations
-# =============================================================================
 
 [ask.windows_service_management]
 description = "Windows service management"
@@ -56,10 +44,6 @@ patterns = [
     "^msiexec ",
     "^nuget install",
 ]
-
-# =============================================================================
-# ALLOW PATTERNS - Windows-specific safe operations
-# =============================================================================
 
 [allow.windows_system_info]
 description = "Windows system information (read-only)"
