@@ -143,6 +143,24 @@ This is why `settings.json` ships with `Bash(*)` in the allow list. It delegates
 
 **Fail-open behavior:** If the hook crashes or produces no output, the "Hook: no response" column applies. With `Bash(*)` in `settings.json`, this means commands are allowed without validation. This is an accepted tradeoff: `validate-bash.sh` has error handling that logs failures and exits non-zero (which Claude Code treats as a hook error, not "no response"). A true "no response" scenario requires the hook process to silently produce empty stdout and exit 0, which the current implementation guards against.
 
+## Codex Tips
+
+Codex CLI runs tool calls inside its own sandbox and, by default, prompts when a command or file edit needs to escape it (e.g., writing outside the session's writable roots). That's separate from this repo's Bash policy hooks.
+
+If those escalation prompts get in the way, you can launch Codex with a more permissive approval mode:
+
+```bash
+codex --full-auto
+```
+
+This only changes Codex's sandbox/approval behavior. It does **not** disable the hooks in `.codex/hooks/`:
+
+- `[deny.*]` patterns still block.
+- `[ask.*]` patterns still prompt.
+- `[allow.*]` patterns still auto-approve.
+
+Note that hooks only gate Bash — not file edits or network — so `--full-auto` does loosen the surface Codex itself guards (writes outside cwd, network, etc.). Pick the mode that matches your environment's trust level; this is a per-user choice, not a repo default.
+
 ## Which Script Should I Use?
 
 | Use case | Recommended |
