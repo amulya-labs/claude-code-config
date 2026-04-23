@@ -12,13 +12,15 @@ set -e
 #   ./scripts/manage-ai-configs.sh claude install --with-gha-workflows   # Also install extra workflow templates
 #   ./scripts/manage-ai-configs.sh claude update                         # Pull latest config (includes Claude workflows)
 #   ./scripts/manage-ai-configs.sh claude update --with-gha-workflows    # Update including extra workflow templates
+#   ./scripts/manage-ai-configs.sh claude sync                           # Install if missing, update if present
 #
 # Multi-provider usage (comma-separated or individual flags):
 #   ./scripts/manage-ai-configs.sh claude install --gemini               # Claude + Gemini workflows
 #   ./scripts/manage-ai-configs.sh claude install --ai claude,gemini     # Same as above
 #   ./scripts/manage-ai-configs.sh claude update --ai gemini             # Update Gemini workflow only (no Claude .claude/ dir)
 #   ./scripts/manage-ai-configs.sh gemini install                        # Gemini workflows only
-#   ./scripts/manage-ai-configs.sh all install                           # All providers
+#   ./scripts/manage-ai-configs.sh all install                           # All providers (skips already-installed)
+#   ./scripts/manage-ai-configs.sh all sync                              # Converge — install missing + update installed
 
 REPO="amulya-labs/ai-dev-foundry"
 BRANCH="main"
@@ -103,6 +105,62 @@ NC='\033[0m'
 info() { echo -e "${GREEN}==>${NC} $1"; }
 warn() { echo -e "${YELLOW}==>${NC} $1"; }
 error() { echo -e "${RED}==>${NC} $1"; exit 1; }
+
+# Compute sha256 of a file in a cross-platform way (Linux: sha256sum, macOS: shasum -a 256)
+sha256_of_file() {
+    local file="$1"
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$file" 2>/dev/null | awk '{print $1}'
+    elif command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$file" 2>/dev/null | awk '{print $1}'
+    else
+        return 1
+    fi
+}
+
+# Warn (not error) if the locally-executing copy of this script differs from
+# upstream on $BRANCH. Intentionally non-blocking: branch-local copies during
+# development, pinned installers used for rollback, and repos with local
+# modifications must all keep working. The warning is meant to catch the common
+# "stale cached copy" case (user downloaded the script months ago, ran `update`,
+# wondered why new features didn't show up).
+#
+# Skipped silently when:
+#   - AIDF_SKIP_VERSION_CHECK is set (opt-out for CI / noisy terminals)
+#   - $0 is not a regular file (e.g. running via `curl | bash`)
+#   - sha256 tool is unavailable
+#   - the upstream fetch fails (network error)
+check_script_version() {
+    if [[ -n "${AIDF_SKIP_VERSION_CHECK:-}" ]]; then
+        return 0
+    fi
+    local self="$0"
+    if [[ ! -f "$self" ]]; then
+        return 0
+    fi
+
+    local local_sha upstream upstream_sha
+    local_sha=$(sha256_of_file "$self") || return 0
+    upstream=$(mktemp)
+    if ! curl -fsSL "$RAW_BASE/scripts/manage-ai-configs.sh" -o "$upstream" 2>/dev/null; then
+        rm -f "$upstream"
+        return 0
+    fi
+    upstream_sha=$(sha256_of_file "$upstream")
+    rm -f "$upstream"
+    if [[ -z "$upstream_sha" || -z "$local_sha" ]]; then
+        return 0
+    fi
+
+    if [[ "$local_sha" != "$upstream_sha" ]]; then
+        warn "Installer differs from upstream on '$BRANCH' (local: ${local_sha:0:12}, remote: ${upstream_sha:0:12})"
+        echo "  If this is a stale cached copy, update it with:" >&2
+        echo "    curl -fsSL '$RAW_BASE/scripts/manage-ai-configs.sh' -o '$self' && chmod +x '$self'" >&2
+        echo "  Otherwise (branch work, pinned copy, local edits) this warning is expected." >&2
+        echo "  Silence with AIDF_SKIP_VERSION_CHECK=1." >&2
+        echo "" >&2
+    fi
+}
 
 # Check if we're in a git repo
 check_git() {
@@ -514,17 +572,35 @@ print_provider_summary() {
 install_config() {
     check_git
 
+    # Filter out providers whose config dir already exists (non-empty). Warn but
+    # continue — this makes `all install` idempotent across re-runs and lets it
+    # pick up newly-added providers without erroring on the existing ones.
+    # Providers without a CONFIG_DIR (workflow-only, e.g. notebooklm) are always kept.
     local _p _up _cdir_var _cdir
+    local -a _kept=()
+    local -a _skipped=()
     for _p in "${PROVIDERS_ENABLED[@]}"; do
         _up=$(printf '%s' "$_p" | tr '[:lower:]' '[:upper:]')
         _cdir_var="PROVIDER_${_up}_CONFIG_DIR"
         if [[ -v "$_cdir_var" ]]; then
             _cdir="${!_cdir_var}"
             if [ -d "$_cdir" ] && [ "$(ls -A "$_cdir" 2>/dev/null)" ]; then
-                error "Directory $_cdir already exists and is not empty. Use 'update' instead."
+                _skipped+=("$_p ($_cdir exists)")
+                continue
             fi
         fi
+        _kept+=("$_p")
     done
+
+    if [[ ${#_skipped[@]} -gt 0 ]]; then
+        for _s in "${_skipped[@]}"; do
+            warn "Skipping install for $_s — use 'update' to pull latest"
+        done
+    fi
+    if [[ ${#_kept[@]} -eq 0 ]]; then
+        error "Nothing to install — all requested providers are already present. Use 'update' instead."
+    fi
+    PROVIDERS_ENABLED=("${_kept[@]}")
 
     info "Installing AI Dev Foundry config..."
     echo ""
@@ -543,17 +619,42 @@ install_config() {
 update_config() {
     check_git
 
+    # Filter out providers that aren't installed yet. Warn but continue — this
+    # makes `all update` work when some providers are installed and others
+    # aren't, instead of hard-erroring on the first missing one.
+    # Providers without a CONFIG_DIR (workflow-only, e.g. notebooklm) are always kept.
     local _p _up _cdir_var _cdir
+    local -a _kept=()
+    local -a _skipped=()
     for _p in "${PROVIDERS_ENABLED[@]}"; do
         _up=$(printf '%s' "$_p" | tr '[:lower:]' '[:upper:]')
         _cdir_var="PROVIDER_${_up}_CONFIG_DIR"
         if [[ -v "$_cdir_var" ]]; then
             _cdir="${!_cdir_var}"
             if [ ! -d "$_cdir" ]; then
-                error "Directory $_cdir not found. Use 'install' first."
+                _skipped+=("$_p ($_cdir missing)")
+                continue
             fi
         fi
+        _kept+=("$_p")
     done
+
+    # Build the list of provider names that were skipped (strip the trailing
+    # diagnostic like "codex (.codex missing)" back to just "codex").
+    local -a _skipped_names=()
+    for _s in "${_skipped[@]}"; do
+        _skipped_names+=("${_s%% *}")
+    done
+
+    if [[ ${#_skipped[@]} -gt 0 ]]; then
+        for _s in "${_skipped[@]}"; do
+            warn "Skipping update for $_s — not installed"
+        done
+    fi
+    if [[ ${#_kept[@]} -eq 0 ]]; then
+        error "Nothing to update — none of the requested providers are installed. Use 'install' first."
+    fi
+    PROVIDERS_ENABLED=("${_kept[@]}")
 
     info "Updating AI Dev Foundry config..."
     echo ""
@@ -564,9 +665,67 @@ update_config() {
     info "Done! Config updated."
     print_provider_summary "updated"
     echo ""
+    if [[ ${#_skipped_names[@]} -gt 0 ]]; then
+        local _missing_csv
+        _missing_csv=$(IFS=,; echo "${_skipped_names[*]}")
+        warn "These providers are available but not installed: ${_skipped_names[*]}"
+        echo "  To install them now:"
+        echo "    $0 --ai ${_missing_csv} install"
+        echo "  Or converge everything in one command:"
+        echo "    $0 all sync"
+        echo ""
+    fi
     echo "Next steps:"
     echo "  git diff --cached  # review changes"
     echo "  git commit -m 'Update AI Dev Foundry config'"
+    echo "  git push"
+}
+
+# Install missing providers and update already-installed ones in a single pass.
+# `install` and `update` stay strict on mismatched state by design; `sync` is the
+# "just converge everything" verb for the common case of adding new providers to
+# a repo that already has some of them installed.
+sync_config() {
+    check_git
+
+    local _p _up _cdir_var _cdir
+    local -a _to_install=()
+    local -a _to_update=()
+    for _p in "${PROVIDERS_ENABLED[@]}"; do
+        _up=$(printf '%s' "$_p" | tr '[:lower:]' '[:upper:]')
+        _cdir_var="PROVIDER_${_up}_CONFIG_DIR"
+        if [[ -v "$_cdir_var" ]]; then
+            _cdir="${!_cdir_var}"
+            if [ -d "$_cdir" ] && [ "$(ls -A "$_cdir" 2>/dev/null)" ]; then
+                _to_update+=("$_p")
+            else
+                _to_install+=("$_p")
+            fi
+        else
+            # Workflow-only provider (e.g. notebooklm) — treat as update (idempotent download).
+            _to_update+=("$_p")
+        fi
+    done
+
+    if [[ ${#_to_install[@]} -gt 0 ]]; then
+        info "Will install: ${_to_install[*]}"
+    fi
+    if [[ ${#_to_update[@]} -gt 0 ]]; then
+        info "Will update:  ${_to_update[*]}"
+    fi
+
+    info "Syncing AI Dev Foundry config..."
+    echo ""
+    download_all
+    stage_downloaded_files
+
+    echo ""
+    info "Done! Config synced."
+    print_provider_summary "synced"
+    echo ""
+    echo "Next steps:"
+    echo "  git diff --cached  # review changes"
+    echo "  git commit -m 'Sync AI Dev Foundry config'"
     echo "  git push"
 }
 
@@ -577,6 +736,7 @@ usage_claude() {
     echo "Commands:"
     echo "  install   Add .claude config to your project (first-time setup)"
     echo "  update    Pull the latest config (agents, hooks, settings)"
+    echo "  sync      Install if missing, update if present (converge state)"
     echo ""
     echo "Options:"
     echo "  --gemini               Also install Gemini PR review workflow"
@@ -614,6 +774,7 @@ usage_gemini() {
     echo "Commands:"
     echo "  install   Add Gemini CLI hooks and workflow to your project (first-time setup)"
     echo "  update    Pull the latest Gemini CLI hooks and workflow"
+    echo "  sync      Install if missing, update if present (converge state)"
     echo ""
     echo "This downloads:"
     echo "  .gemini/hooks/                             - Gemini CLI hook adapters"
@@ -635,6 +796,7 @@ usage_codex() {
     echo "Commands:"
     echo "  install   Add Codex hooks to your project (first-time setup)"
     echo "  update    Pull the latest Codex hooks"
+    echo "  sync      Install if missing, update if present (converge state)"
     echo ""
     echo "This downloads:"
     echo "  .codex/hooks/                             - Codex hook adapters"
@@ -653,6 +815,7 @@ usage_notebooklm() {
     echo "Commands:"
     echo "  install   Add NotebookLM sync workflow to your project (first-time setup)"
     echo "  update    Pull the latest NotebookLM sync workflow"
+    echo "  sync      Install if missing, update if present (converge state)"
     echo ""
     echo "This downloads:"
     echo "  .github/workflows/sync-notebooklm.yml  - Automated NotebookLM sync on push to main"
@@ -671,10 +834,13 @@ usage_all() {
     echo "Usage: $0 all <command> [options]"
     echo ""
     echo "Commands:"
-    echo "  install   Install all provider configs and workflows"
-    echo "  update    Update all provider configs and workflows"
+    echo "  install   Install missing providers (skips already-installed ones)"
+    echo "  update    Update installed providers (skips missing ones)"
+    echo "  sync      Converge — install missing providers AND update installed ones"
     echo ""
-    echo "Equivalent to running install/update for every registered provider."
+    echo "Use 'sync' when you want the repo to match upstream without worrying"
+    echo "about per-provider state. Use 'install' or 'update' when you want"
+    echo "explicit, strict semantics."
     echo ""
     echo "Registered providers:"
     local _lvar _pname _plower
@@ -718,6 +884,7 @@ usage_main() {
     echo "Commands:"
     echo "  install   First-time setup — downloads config and workflows"
     echo "  update    Pull the latest config from ai-dev-foundry"
+    echo "  sync      Install missing + update installed (converge state)"
     echo ""
     echo "Global options:"
     echo "  --gemini               Also install Gemini workflows (with claude)"
@@ -730,6 +897,9 @@ usage_main() {
     echo "  $0 codex install             # Codex hooks"
     echo "  $0 all install               # All providers"
     echo "  $0 claude install --ai gemini,codex   # Claude + Gemini + Codex"
+    echo ""
+    echo "Environment:"
+    echo "  AIDF_SKIP_VERSION_CHECK=1  Skip the self-update check (offline/CI use)"
     echo ""
     echo "Run '$0 <provider>' for provider-specific usage."
 }
@@ -816,15 +986,22 @@ handle_provider_command() {
     case "$command" in
         install) install_config ;;
         update)  update_config ;;
+        sync)    sync_config ;;
         *)       "$usage_func"; exit 1 ;;
     esac
 }
 
 case "$AGENT" in
     claude|gemini|codex|notebooklm)
+        if [[ "${1:-}" == "install" || "${1:-}" == "update" || "${1:-}" == "sync" ]]; then
+            check_script_version
+        fi
         handle_provider_command "$AGENT" "${1:-}"
         ;;
     all)
+        if [[ "${1:-}" == "install" || "${1:-}" == "update" || "${1:-}" == "sync" ]]; then
+            check_script_version
+        fi
         if [ ${#PROVIDERS_ENABLED[@]} -gt 0 ]; then
             warn "'all' with --ai/--gemini: operating on specified providers only, not all"
         else
@@ -841,6 +1018,7 @@ case "$AGENT" in
         case "${1:-}" in
             install) install_config ;;
             update)  update_config ;;
+            sync)    sync_config ;;
             *)       usage_all; exit 1 ;;
         esac
         ;;

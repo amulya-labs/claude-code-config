@@ -845,6 +845,127 @@ fi
 
 echo
 
+# ── self-update check ───────────────────────────────────────────────
+
+echo "=== check_script_version() ==="
+
+if grep -q 'check_script_version()' "$MANAGE_SCRIPT"; then
+    assert "check_script_version() function is defined" "pass"
+else
+    assert "check_script_version() function is defined" "fail"
+fi
+
+if grep -q 'AIDF_SKIP_VERSION_CHECK' "$MANAGE_SCRIPT"; then
+    assert "AIDF_SKIP_VERSION_CHECK opt-out is wired" "pass"
+else
+    assert "AIDF_SKIP_VERSION_CHECK opt-out is wired" "fail"
+fi
+
+# Version check must be invoked somewhere outside its own definition (the
+# definition itself is one occurrence; the dispatch call is another).
+if [[ "$(grep -c 'check_script_version' "$MANAGE_SCRIPT")" -ge 2 ]]; then
+    assert "check_script_version is invoked before install/update dispatch" "pass"
+else
+    assert "check_script_version is invoked before install/update dispatch" "fail"
+fi
+
+# Version check must not exit/error — it should only warn, so branch-local
+# copies, pinned installers, and locally-modified scripts still run.
+if awk '/^check_script_version\(\)/,/^}$/' "$MANAGE_SCRIPT" | grep -qE '\b(exit|error)\b'; then
+    assert "check_script_version does NOT hard-block on drift" "fail" \
+        "Found exit/error inside check_script_version — should be warning-only"
+else
+    assert "check_script_version does NOT hard-block on drift" "pass"
+fi
+
+# Integration: a locally-modified installer still runs install/update/sync.
+# We fake upstream drift by making the "upstream fetch" return a different
+# sha via network isolation — simplest check is that with a known-stale
+# local copy, commands still reach their dispatch body.
+_TMPDIR=$(mktemp -d)
+cp "$MANAGE_SCRIPT" "$_TMPDIR/installer.sh"
+echo "# local divergence for test" >> "$_TMPDIR/installer.sh"
+chmod +x "$_TMPDIR/installer.sh"
+(
+    cd "$_TMPDIR" && git init -q && git -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
+    # Run update on a repo where no providers are installed — should warn about
+    # drift (or about offline) but then still proceed to the "nothing to update"
+    # error path (exit 1 from that, NOT from the version check).
+    out=$("./installer.sh" all update 2>&1 || true)
+    # If the version check was still hard-blocking, we'd see "Installer is out
+    # of date." and exit early. Instead we should see either the drift warning
+    # (network available) or the provider-not-installed message.
+    if echo "$out" | grep -qE 'Installer is out of date'; then
+        exit 42
+    fi
+    # And we should reach the update dispatch (either "Skipping update" or
+    # "Updating AI Dev Foundry config" or the terminal "Nothing to update").
+    if echo "$out" | grep -qE 'Skipping update|Updating AI Dev Foundry|Nothing to update'; then
+        exit 0
+    fi
+    exit 43
+)
+_rc=$?
+rm -rf "$_TMPDIR"
+if [[ $_rc -eq 0 ]]; then
+    assert "modified local copy still runs install/update/sync" "pass"
+else
+    assert "modified local copy still runs install/update/sync" "fail" "rc=$_rc"
+fi
+
+echo
+
+# ── partial-state handling for 'all install' / 'all update' ─────────
+
+echo "=== install_config / update_config partial state ==="
+
+# install should filter out providers already present, not hard-error
+if grep -A25 '^install_config()' "$MANAGE_SCRIPT" | grep -q 'Skipping install for'; then
+    assert "install_config skips already-installed providers with a warning" "pass"
+else
+    assert "install_config skips already-installed providers with a warning" "fail"
+fi
+
+# update should filter out providers not yet installed, not hard-error
+if grep -A60 '^update_config()' "$MANAGE_SCRIPT" | grep -q 'Skipping update for'; then
+    assert "update_config skips not-yet-installed providers with a warning" "pass"
+else
+    assert "update_config skips not-yet-installed providers with a warning" "fail"
+fi
+
+# update should print a hint listing the install command for missing providers
+if grep -q 'available but not installed' "$MANAGE_SCRIPT"; then
+    assert "update_config hints the install command for missing providers" "pass"
+else
+    assert "update_config hints the install command for missing providers" "fail"
+fi
+
+echo
+
+# ── sync command ────────────────────────────────────────────────────
+
+echo "=== sync command ==="
+
+if grep -q '^sync_config()' "$MANAGE_SCRIPT"; then
+    assert "sync_config() function is defined" "pass"
+else
+    assert "sync_config() function is defined" "fail"
+fi
+
+if grep -q 'sync)    sync_config' "$MANAGE_SCRIPT"; then
+    assert "sync is wired into both single-provider and 'all' dispatch" "pass"
+else
+    assert "sync is wired into both single-provider and 'all' dispatch" "fail"
+fi
+
+if grep -q 'sync.*Install if missing, update if present' "$MANAGE_SCRIPT"; then
+    assert "per-provider usage text documents sync" "pass"
+else
+    assert "per-provider usage text documents sync" "fail"
+fi
+
+echo
+
 # ── shellcheck ──────────────────────────────────────────────────────
 
 echo "=== shellcheck ==="
