@@ -104,6 +104,61 @@ info() { echo -e "${GREEN}==>${NC} $1"; }
 warn() { echo -e "${YELLOW}==>${NC} $1"; }
 error() { echo -e "${RED}==>${NC} $1"; exit 1; }
 
+# Compute sha256 of a file in a cross-platform way (Linux: sha256sum, macOS: shasum -a 256)
+sha256_of_file() {
+    local file="$1"
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$file" 2>/dev/null | awk '{print $1}'
+    elif command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "$file" 2>/dev/null | awk '{print $1}'
+    else
+        return 1
+    fi
+}
+
+# Abort if the locally-executing copy of this script differs from upstream on $BRANCH.
+# Skipped when:
+#   - AIDF_SKIP_VERSION_CHECK is set (opt-out for offline/CI use)
+#   - $0 is not a regular file (e.g. running via `curl | bash`)
+#   - sha256 tool is unavailable
+#   - the upstream fetch fails (network error — soft fail, warn only)
+check_script_version() {
+    if [[ -n "${AIDF_SKIP_VERSION_CHECK:-}" ]]; then
+        return 0
+    fi
+    local self="$0"
+    if [[ ! -f "$self" ]]; then
+        return 0
+    fi
+
+    local local_sha upstream upstream_sha
+    local_sha=$(sha256_of_file "$self") || return 0
+    upstream=$(mktemp)
+    if ! curl -fsSL "$RAW_BASE/scripts/manage-ai-configs.sh" -o "$upstream" 2>/dev/null; then
+        rm -f "$upstream"
+        warn "Could not verify installer version (offline?) — continuing with local copy"
+        return 0
+    fi
+    upstream_sha=$(sha256_of_file "$upstream")
+    rm -f "$upstream"
+    if [[ -z "$upstream_sha" || -z "$local_sha" ]]; then
+        return 0
+    fi
+
+    if [[ "$local_sha" != "$upstream_sha" ]]; then
+        echo -e "${RED}==>${NC} Installer is out of date." >&2
+        echo "" >&2
+        echo "  Local  sha256: $local_sha" >&2
+        echo "  Remote sha256: $upstream_sha" >&2
+        echo "" >&2
+        echo "Update it with:" >&2
+        echo "  curl -fsSL '$RAW_BASE/scripts/manage-ai-configs.sh' -o '$self' && chmod +x '$self'" >&2
+        echo "" >&2
+        echo "Then re-run your command. To bypass this check, set AIDF_SKIP_VERSION_CHECK=1." >&2
+        exit 1
+    fi
+}
+
 # Check if we're in a git repo
 check_git() {
     if ! git rev-parse --is-inside-work-tree > /dev/null 2>&1; then
@@ -514,17 +569,35 @@ print_provider_summary() {
 install_config() {
     check_git
 
+    # Filter out providers whose config dir already exists (non-empty). Warn but
+    # continue — this makes `all install` idempotent across re-runs and lets it
+    # pick up newly-added providers without erroring on the existing ones.
+    # Providers without a CONFIG_DIR (workflow-only, e.g. notebooklm) are always kept.
     local _p _up _cdir_var _cdir
+    local -a _kept=()
+    local -a _skipped=()
     for _p in "${PROVIDERS_ENABLED[@]}"; do
         _up=$(printf '%s' "$_p" | tr '[:lower:]' '[:upper:]')
         _cdir_var="PROVIDER_${_up}_CONFIG_DIR"
         if [[ -v "$_cdir_var" ]]; then
             _cdir="${!_cdir_var}"
             if [ -d "$_cdir" ] && [ "$(ls -A "$_cdir" 2>/dev/null)" ]; then
-                error "Directory $_cdir already exists and is not empty. Use 'update' instead."
+                _skipped+=("$_p ($_cdir exists)")
+                continue
             fi
         fi
+        _kept+=("$_p")
     done
+
+    if [[ ${#_skipped[@]} -gt 0 ]]; then
+        for _s in "${_skipped[@]}"; do
+            warn "Skipping install for $_s — use 'update' to pull latest"
+        done
+    fi
+    if [[ ${#_kept[@]} -eq 0 ]]; then
+        error "Nothing to install — all requested providers are already present. Use 'update' instead."
+    fi
+    PROVIDERS_ENABLED=("${_kept[@]}")
 
     info "Installing AI Dev Foundry config..."
     echo ""
@@ -543,17 +616,35 @@ install_config() {
 update_config() {
     check_git
 
+    # Filter out providers that aren't installed yet. Warn but continue — this
+    # makes `all update` work when some providers are installed and others
+    # aren't, instead of hard-erroring on the first missing one.
+    # Providers without a CONFIG_DIR (workflow-only, e.g. notebooklm) are always kept.
     local _p _up _cdir_var _cdir
+    local -a _kept=()
+    local -a _skipped=()
     for _p in "${PROVIDERS_ENABLED[@]}"; do
         _up=$(printf '%s' "$_p" | tr '[:lower:]' '[:upper:]')
         _cdir_var="PROVIDER_${_up}_CONFIG_DIR"
         if [[ -v "$_cdir_var" ]]; then
             _cdir="${!_cdir_var}"
             if [ ! -d "$_cdir" ]; then
-                error "Directory $_cdir not found. Use 'install' first."
+                _skipped+=("$_p ($_cdir missing)")
+                continue
             fi
         fi
+        _kept+=("$_p")
     done
+
+    if [[ ${#_skipped[@]} -gt 0 ]]; then
+        for _s in "${_skipped[@]}"; do
+            warn "Skipping update for $_s — not installed; run 'install' to add it"
+        done
+    fi
+    if [[ ${#_kept[@]} -eq 0 ]]; then
+        error "Nothing to update — none of the requested providers are installed. Use 'install' first."
+    fi
+    PROVIDERS_ENABLED=("${_kept[@]}")
 
     info "Updating AI Dev Foundry config..."
     echo ""
@@ -731,6 +822,9 @@ usage_main() {
     echo "  $0 all install               # All providers"
     echo "  $0 claude install --ai gemini,codex   # Claude + Gemini + Codex"
     echo ""
+    echo "Environment:"
+    echo "  AIDF_SKIP_VERSION_CHECK=1  Skip the self-update check (offline/CI use)"
+    echo ""
     echo "Run '$0 <provider>' for provider-specific usage."
 }
 
@@ -822,9 +916,15 @@ handle_provider_command() {
 
 case "$AGENT" in
     claude|gemini|codex|notebooklm)
+        if [[ "${1:-}" == "install" || "${1:-}" == "update" ]]; then
+            check_script_version
+        fi
         handle_provider_command "$AGENT" "${1:-}"
         ;;
     all)
+        if [[ "${1:-}" == "install" || "${1:-}" == "update" ]]; then
+            check_script_version
+        fi
         if [ ${#PROVIDERS_ENABLED[@]} -gt 0 ]; then
             warn "'all' with --ai/--gemini: operating on specified providers only, not all"
         else

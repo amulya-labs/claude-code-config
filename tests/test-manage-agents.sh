@@ -845,6 +845,52 @@ fi
 
 echo
 
+# ── self-update check ───────────────────────────────────────────────
+
+echo "=== check_script_version() ==="
+
+if grep -q 'check_script_version()' "$MANAGE_SCRIPT"; then
+    assert "check_script_version() function is defined" "pass"
+else
+    assert "check_script_version() function is defined" "fail"
+fi
+
+if grep -q 'AIDF_SKIP_VERSION_CHECK' "$MANAGE_SCRIPT"; then
+    assert "AIDF_SKIP_VERSION_CHECK opt-out is wired" "pass"
+else
+    assert "AIDF_SKIP_VERSION_CHECK opt-out is wired" "fail"
+fi
+
+# Version check must be invoked somewhere outside its own definition (the
+# definition itself is one occurrence; the dispatch call is another).
+if [[ "$(grep -c 'check_script_version' "$MANAGE_SCRIPT")" -ge 2 ]]; then
+    assert "check_script_version is invoked before install/update dispatch" "pass"
+else
+    assert "check_script_version is invoked before install/update dispatch" "fail"
+fi
+
+echo
+
+# ── partial-state handling for 'all install' / 'all update' ─────────
+
+echo "=== install_config / update_config partial state ==="
+
+# install should filter out providers already present, not hard-error
+if grep -A25 '^install_config()' "$MANAGE_SCRIPT" | grep -q 'Skipping install for'; then
+    assert "install_config skips already-installed providers with a warning" "pass"
+else
+    assert "install_config skips already-installed providers with a warning" "fail"
+fi
+
+# update should filter out providers not yet installed, not hard-error
+if grep -A25 '^update_config()' "$MANAGE_SCRIPT" | grep -q 'Skipping update for'; then
+    assert "update_config skips not-yet-installed providers with a warning" "pass"
+else
+    assert "update_config skips not-yet-installed providers with a warning" "fail"
+fi
+
+echo
+
 # ── shellcheck ──────────────────────────────────────────────────────
 
 echo "=== shellcheck ==="
