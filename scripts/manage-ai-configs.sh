@@ -118,12 +118,18 @@ sha256_of_file() {
     fi
 }
 
-# Abort if the locally-executing copy of this script differs from upstream on $BRANCH.
-# Skipped when:
-#   - AIDF_SKIP_VERSION_CHECK is set (opt-out for offline/CI use)
+# Warn (not error) if the locally-executing copy of this script differs from
+# upstream on $BRANCH. Intentionally non-blocking: branch-local copies during
+# development, pinned installers used for rollback, and repos with local
+# modifications must all keep working. The warning is meant to catch the common
+# "stale cached copy" case (user downloaded the script months ago, ran `update`,
+# wondered why new features didn't show up).
+#
+# Skipped silently when:
+#   - AIDF_SKIP_VERSION_CHECK is set (opt-out for CI / noisy terminals)
 #   - $0 is not a regular file (e.g. running via `curl | bash`)
 #   - sha256 tool is unavailable
-#   - the upstream fetch fails (network error — soft fail, warn only)
+#   - the upstream fetch fails (network error)
 check_script_version() {
     if [[ -n "${AIDF_SKIP_VERSION_CHECK:-}" ]]; then
         return 0
@@ -138,7 +144,6 @@ check_script_version() {
     upstream=$(mktemp)
     if ! curl -fsSL "$RAW_BASE/scripts/manage-ai-configs.sh" -o "$upstream" 2>/dev/null; then
         rm -f "$upstream"
-        warn "Could not verify installer version (offline?) — continuing with local copy"
         return 0
     fi
     upstream_sha=$(sha256_of_file "$upstream")
@@ -148,16 +153,12 @@ check_script_version() {
     fi
 
     if [[ "$local_sha" != "$upstream_sha" ]]; then
-        echo -e "${RED}==>${NC} Installer is out of date." >&2
+        warn "Installer differs from upstream on '$BRANCH' (local: ${local_sha:0:12}, remote: ${upstream_sha:0:12})"
+        echo "  If this is a stale cached copy, update it with:" >&2
+        echo "    curl -fsSL '$RAW_BASE/scripts/manage-ai-configs.sh' -o '$self' && chmod +x '$self'" >&2
+        echo "  Otherwise (branch work, pinned copy, local edits) this warning is expected." >&2
+        echo "  Silence with AIDF_SKIP_VERSION_CHECK=1." >&2
         echo "" >&2
-        echo "  Local  sha256: $local_sha" >&2
-        echo "  Remote sha256: $upstream_sha" >&2
-        echo "" >&2
-        echo "Update it with:" >&2
-        echo "  curl -fsSL '$RAW_BASE/scripts/manage-ai-configs.sh' -o '$self' && chmod +x '$self'" >&2
-        echo "" >&2
-        echo "Then re-run your command. To bypass this check, set AIDF_SKIP_VERSION_CHECK=1." >&2
-        exit 1
     fi
 }
 

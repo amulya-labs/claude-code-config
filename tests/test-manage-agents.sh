@@ -869,6 +869,50 @@ else
     assert "check_script_version is invoked before install/update dispatch" "fail"
 fi
 
+# Version check must not exit/error — it should only warn, so branch-local
+# copies, pinned installers, and locally-modified scripts still run.
+if awk '/^check_script_version\(\)/,/^}$/' "$MANAGE_SCRIPT" | grep -qE '\b(exit|error)\b'; then
+    assert "check_script_version does NOT hard-block on drift" "fail" \
+        "Found exit/error inside check_script_version — should be warning-only"
+else
+    assert "check_script_version does NOT hard-block on drift" "pass"
+fi
+
+# Integration: a locally-modified installer still runs install/update/sync.
+# We fake upstream drift by making the "upstream fetch" return a different
+# sha via network isolation — simplest check is that with a known-stale
+# local copy, commands still reach their dispatch body.
+_TMPDIR=$(mktemp -d)
+cp "$MANAGE_SCRIPT" "$_TMPDIR/installer.sh"
+echo "# local divergence for test" >> "$_TMPDIR/installer.sh"
+chmod +x "$_TMPDIR/installer.sh"
+(
+    cd "$_TMPDIR" && git init -q && git -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
+    # Run update on a repo where no providers are installed — should warn about
+    # drift (or about offline) but then still proceed to the "nothing to update"
+    # error path (exit 1 from that, NOT from the version check).
+    out=$("./installer.sh" all update 2>&1 || true)
+    # If the version check was still hard-blocking, we'd see "Installer is out
+    # of date." and exit early. Instead we should see either the drift warning
+    # (network available) or the provider-not-installed message.
+    if echo "$out" | grep -qE 'Installer is out of date'; then
+        exit 42
+    fi
+    # And we should reach the update dispatch (either "Skipping update" or
+    # "Updating AI Dev Foundry config" or the terminal "Nothing to update").
+    if echo "$out" | grep -qE 'Skipping update|Updating AI Dev Foundry|Nothing to update'; then
+        exit 0
+    fi
+    exit 43
+)
+_rc=$?
+rm -rf "$_TMPDIR"
+if [[ $_rc -eq 0 ]]; then
+    assert "modified local copy still runs install/update/sync" "pass"
+else
+    assert "modified local copy still runs install/update/sync" "fail" "rc=$_rc"
+fi
+
 echo
 
 # ── partial-state handling for 'all install' / 'all update' ─────────
