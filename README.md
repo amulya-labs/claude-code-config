@@ -24,10 +24,10 @@ How it works today: the tool's native prompt fires *first*, before the hook gets
 | Tool | Start with |
 |------|------------|
 | **Claude Code** | `claude --dangerously-skip-permissions` |
-| **Codex CLI** | `codex --full-auto` *(sandboxed)* &nbsp;·&nbsp; `codex --dangerously-bypass-approvals-and-sandbox` *(no sandbox)* |
+| **Codex CLI** | `codex --full-auto` *(sandboxed)* |
 | **Gemini CLI** | `gemini --yolo` (or `-y`) |
 
-> **What stays in place.** The hook's `[deny.*]` patterns still fire in every mode above — destructive commands (`rm -rf /`, force-pushes to `main`, `dd of=/dev/*`, and similar) remain blocked. `[ask.*]` patterns still prompt; `[allow.*]` patterns still auto-approve silently. You're not disabling the policy, you're promoting it to the sole gate.
+> **What stays in place.** The hook's `[deny.*]` patterns still fire in every mode above — destructive commands (`rm -rf /`, `dd of=/dev/*`, and similar) remain blocked. `[ask.*]` patterns still prompt for confirmation (e.g., force-pushes to `main`, destructive Docker/kubectl operations); `[allow.*]` patterns still auto-approve silently. You're not disabling the policy, you're promoting it to the sole gate.
 
 ### What this isn't
 
