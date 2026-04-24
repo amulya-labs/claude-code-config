@@ -15,6 +15,34 @@ mkdir -p scripts && curl -fsSL -o scripts/manage-ai-configs.sh https://raw.githu
 
 See [Installation Options](#installation-options) below for git-subtree, manual-copy, and update flows.
 
+## Skip approvals for safe commands (opt-in)
+
+If you've clicked **approve** on `git status`, `ls`, or `npm test` a dozen times in one session, you're paying for two approval layers stacked on top of each other: your AI tool's, and this repo's hook. You can collapse them into one, so the hook's `allow` list does the silent gating and prompts are reserved for commands that actually warrant a human check.
+
+How it works today: the tool's native prompt fires *first*, before the hook gets a turn — so `allow` patterns never get to suppress it. The modes below skip the tool's prompt layer and let the hook be the sole gate for Bash.
+
+| Tool | Start with |
+|------|------------|
+| **Claude Code** | `claude --dangerously-skip-permissions` |
+| **Codex CLI** | `codex --full-auto` *(sandboxed)* |
+| **Gemini CLI** | `gemini --yolo` (or `-y`) |
+
+> **What stays in place.** The hook's `[deny.*]` patterns still fire in every mode above — destructive commands (`rm -rf /`, `dd of=/dev/*`, and similar) remain blocked. `[ask.*]` patterns still prompt for confirmation (e.g., force-pushes to `main`, destructive Docker/kubectl operations); `[allow.*]` patterns still auto-approve silently. You're not disabling the policy, you're promoting it to the sole gate.
+
+### What this isn't
+
+- **Not safer.** Same policy, enforced once instead of twice. Fewer prompts is a UX win, not a security upgrade.
+- **Not a sandbox.** The hook blocks by pattern, not by capability. Use it on machines and repos you already trust — never on shared hosts or against code/prompts from untrusted sources.
+- **Not set-and-forget.** Skim the allow/deny lists in [`.ai-dev-foundry/shared/hooks/bash-policy/bash-patterns.toml`](.ai-dev-foundry/shared/hooks/bash-policy/bash-patterns.toml) once before flipping, and again after upgrading this repo.
+
+### When to stay on default prompts
+
+- **First-time users** who haven't seen what the policy covers.
+- **Windows / Git Bash** — the `bash-patterns.windows.toml` overlay is less battle-tested than Linux and macOS. Review your recent hook logs before switching on Windows.
+- **opencode users** — there's no hook adapter for opencode in this repo yet (upstream hasn't exposed a comparable project hook surface), so YOLO on opencode means *no* gate, not "hook is the gate." Keep opencode on its default prompt settings until hook support lands.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for per-tool nuances (Codex sandbox semantics, Claude `settings.json` × hook precedence, logging) and for how to extend the allow/ask/deny patterns.
+
 ## Agents
 
 See [docs/agents.md](docs/agents.md) for per-agent descriptions, domain grouping, and usage examples.
