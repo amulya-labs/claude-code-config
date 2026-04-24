@@ -15,6 +15,7 @@ Full catalog of agents shipped by ai-dev-foundry, grouped by domain. The top-lev
 | Agent | What it does |
 |-------|--------------|
 | **senior-dev** | Implements features with production-quality code and tests |
+| **junior-dev** | Implements straightforward features and fixes simple bugs; suited for focused, well-scoped tasks |
 | **debugger** | Investigates bugs systematically with root cause analysis |
 | **refactoring-expert** | Improves code structure without changing behavior |
 | **prompt-engineer** | Crafts effective prompts for AI models |
@@ -59,9 +60,16 @@ Full catalog of agents shipped by ai-dev-foundry, grouped by domain. The top-lev
 | **solution-eng** | Runs discovery, designs solutions, manages POCs |
 | **marketing-lead** | Crafts positioning, messaging, and go-to-market copy that converts |
 
+## Professional
+
+| Agent | What it does |
+|-------|--------------|
+| **career-advisor** | Diagnoses market position and produces ROI-ranked actions for role targeting, resume strategy, and career pivots |
+| **legal-counsel** | Analyzes legal issues, reviews contracts, and drafts legal work product with strict anti-hallucination and jurisdiction discipline |
+
 ## Usage
 
-Invoke agents with `@agent-name` in Claude Code:
+`@agent-name` is a Claude Code invocation pattern. For Gemini CLI and Codex CLI, agents are selected automatically based on your request; explicit `@agent-name` targeting is not required.
 
 ```
 @tech-lead plan how to add user notifications
@@ -71,5 +79,3 @@ Invoke agents with `@agent-name` in Claude Code:
 @systems-architect how does caching work in this service?
 @code-reviewer check my changes before I open a PR
 ```
-
-Claude can also select agents automatically based on your request.

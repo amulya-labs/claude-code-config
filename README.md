@@ -3,7 +3,7 @@
 [![CI](https://github.com/amulya-labs/ai-dev-foundry/actions/workflows/ci.yml/badge.svg)](https://github.com/amulya-labs/ai-dev-foundry/actions/workflows/ci.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/amulya-labs/ai-dev-foundry/badge)](https://scorecard.dev/viewer/?uri=github.com/amulya-labs/ai-dev-foundry)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Agents](https://img.shields.io/badge/agents-22-blue.svg)](.claude/agents/)
+[![Agents](https://img.shields.io/badge/agents-25-blue.svg)](.claude/agents/)
 
 **Production-ready configuration for AI coding agents.** A shared set of agents, a cross-tool Bash-command policy, and GitHub Actions workflows you can drop into any project. Works across Claude Code, Codex CLI, Gemini CLI, and opencode.
 
@@ -21,9 +21,11 @@ See [docs/agents.md](docs/agents.md) for per-agent descriptions, domain grouping
 
 <table>
 <tr><th>Agent</th><th>Description</th><th>Model</th></tr>
-<tr><td>agent-specialist</td><td>Design and optimize AI agents with strong contracts</td><td rowspan="13">opus</td></tr>
+<tr><td>agent-specialist</td><td>Design and optimize AI agents with strong contracts</td><td rowspan="15">opus</td></tr>
+<tr><td>career-advisor</td><td>Career strategy: role targeting, resume, job search, and pivots</td></tr>
 <tr><td>claudemd-architect</td><td>Create and update CLAUDE.md files for agent-ready repos</td></tr>
 <tr><td>data-engineer</td><td>ETL/ELT pipelines, data modeling, orchestration, and data quality</td></tr>
+<tr><td>legal-counsel</td><td>Contract review, legal analysis, and policy drafting</td></tr>
 <tr><td>marketing-lead</td><td>Positioning, messaging, and go-to-market copy</td></tr>
 <tr><td>ml-architect</td><td>End-to-end ML system design and production ML decisions</td></tr>
 <tr><td>prod-engineer</td><td>Production incident response and reliability engineering</td></tr>
