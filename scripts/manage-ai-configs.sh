@@ -270,13 +270,9 @@ prune_stale_files() {
         else
             warn "  Failed to remove $f"
         fi
-        # Clean up empty parent dir only if it's now empty (don't remove dirs
-        # that still hold other files).
-        local parent
-        parent=$(dirname "$f")
-        if [[ -d "$parent" ]] && [[ -z "$(ls -A "$parent" 2>/dev/null)" ]]; then
-            rmdir "$parent" 2>/dev/null || true
-        fi
+        # Clean up empty parent dir after each removal; rmdir refuses
+        # non-empty dirs atomically, so no extra emptiness check needed.
+        rmdir "$(dirname "$f")" 2>/dev/null || true
     done <<< "$stale"
 
     info "Pruned $removed stale file(s). Review with 'git diff' and commit."
@@ -841,7 +837,7 @@ usage_claude() {
     echo "  install   Add .claude config to your project (first-time setup)"
     echo "  update    Pull the latest config (agents, hooks, settings)"
     echo "  sync      Install if missing, update if present (converge state)"
-    echo "  prune     Remove stale files from older installer layouts"
+    echo "  prune     Remove stale files from older installer layouts (AIDF_ASSUME_YES=1 skips prompt)"
     echo ""
     echo "Options:"
     echo "  --gemini               Also install Gemini PR review workflow"
@@ -880,7 +876,7 @@ usage_gemini() {
     echo "  install   Add Gemini CLI hooks and workflow to your project (first-time setup)"
     echo "  update    Pull the latest Gemini CLI hooks and workflow"
     echo "  sync      Install if missing, update if present (converge state)"
-    echo "  prune     Remove stale files from older installer layouts"
+    echo "  prune     Remove stale files from older installer layouts (AIDF_ASSUME_YES=1 skips prompt)"
     echo ""
     echo "This downloads:"
     echo "  .gemini/hooks/                             - Gemini CLI hook adapters"
@@ -903,7 +899,7 @@ usage_codex() {
     echo "  install   Add Codex hooks to your project (first-time setup)"
     echo "  update    Pull the latest Codex hooks"
     echo "  sync      Install if missing, update if present (converge state)"
-    echo "  prune     Remove stale files from older installer layouts"
+    echo "  prune     Remove stale files from older installer layouts (AIDF_ASSUME_YES=1 skips prompt)"
     echo ""
     echo "This downloads:"
     echo "  .codex/hooks/                             - Codex hook adapters"
@@ -923,7 +919,7 @@ usage_notebooklm() {
     echo "  install   Add NotebookLM sync workflow to your project (first-time setup)"
     echo "  update    Pull the latest NotebookLM sync workflow"
     echo "  sync      Install if missing, update if present (converge state)"
-    echo "  prune     Remove stale files from older installer layouts"
+    echo "  prune     Remove stale files from older installer layouts (AIDF_ASSUME_YES=1 skips prompt)"
     echo ""
     echo "This downloads:"
     echo "  .github/workflows/sync-notebooklm.yml  - Automated NotebookLM sync on push to main"
@@ -945,7 +941,7 @@ usage_all() {
     echo "  install   Install missing providers (skips already-installed ones)"
     echo "  update    Update installed providers (skips missing ones)"
     echo "  sync      Converge — install missing providers AND update installed ones"
-    echo "  prune     Remove stale files from older installer layouts"
+    echo "  prune     Remove stale files from older installer layouts (AIDF_ASSUME_YES=1 skips prompt)"
     echo ""
     echo "Use 'sync' when you want the repo to match upstream without worrying"
     echo "about per-provider state. Use 'install' or 'update' when you want"
@@ -994,7 +990,7 @@ usage_main() {
     echo "  install   First-time setup — downloads config and workflows"
     echo "  update    Pull the latest config from ai-dev-foundry"
     echo "  sync      Install missing + update installed (converge state)"
-    echo "  prune     Remove stale files from older installer layouts"
+    echo "  prune     Remove stale files from older installer layouts (AIDF_ASSUME_YES=1 skips prompt)"
     echo ""
     echo "Global options:"
     echo "  --gemini               Also install Gemini workflows (with claude)"
