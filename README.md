@@ -24,10 +24,11 @@ How it works today: the tool's native prompt fires *first*, before the hook gets
 | Tool | Start with |
 |------|------------|
 | **Claude Code** | `claude --dangerously-skip-permissions` |
-| **Codex CLI** | `codex --full-auto` *(sandboxed)* |
 | **Gemini CLI** | `gemini --yolo` (or `-y`) |
 
 > **What stays in place.** The hook's `[deny.*]` patterns still fire in every mode above — destructive commands (`rm -rf /`, `dd of=/dev/*`, and similar) remain blocked. `[ask.*]` patterns still prompt for confirmation (e.g., force-pushes to `main`, destructive Docker/kubectl operations); `[allow.*]` patterns still auto-approve silently. You're not disabling the policy, you're promoting it to the sole gate.
+
+> **Codex isn't in this table yet.** Empirical testing shows the project-level Codex hook isn't being invoked by `codex` as currently wired in this repo, so promoting Codex's prompt layer to "hook is the gate" wouldn't be honest — there's no gate active under Codex right now. Tracking the fix in [#108](https://github.com/amulya-labs/ai-dev-foundry/issues/108).
 
 ### What this isn't
 
@@ -78,7 +79,7 @@ See [docs/agents.md](docs/agents.md) for per-agent descriptions, domain grouping
 
 ## Hooks
 
-A shared Bash-command validation engine lives in `.ai-dev-foundry/shared/hooks/bash-policy/`, with thin adapters in `.claude/hooks/`, `.gemini/hooks/`, and `.codex/hooks/` — so the same allow/ask/deny policy is reused across Claude Code, Codex CLI, and Gemini CLI without duplicating rules. opencode is still pending upstream support for a comparable project hook surface.
+A shared Bash-command validation engine lives in `.ai-dev-foundry/shared/hooks/bash-policy/`, with thin adapters in `.claude/hooks/`, `.gemini/hooks/`, and `.codex/hooks/` — so the same allow/ask/deny policy can be reused across Claude Code and Gemini CLI without duplicating rules. The Codex adapter ships but its integration with `codex` is currently not invoking the hook; see [#108](https://github.com/amulya-labs/ai-dev-foundry/issues/108). opencode is still pending upstream support for a comparable project hook surface.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the hook architecture, pattern categories, OS overlays, and the Claude `settings.json` × hook precedence matrix.
 

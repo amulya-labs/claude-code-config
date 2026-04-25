@@ -145,6 +145,8 @@ This is why `settings.json` ships with `Bash(*)` in the allow list. It delegates
 
 ## Codex Tips
 
+> **Known limitation: the Codex Bash hook is not invoked by `codex` as currently wired.** Empirical testing on Codex CLI 0.125.0 shows our `.codex/hooks.json` and `.codex/hooks/validate-bash.sh` are not executed when Codex runs shell commands, even though `CodexHooks` is enabled in Codex's default feature set and this repo is marked `trust_level = "trusted"`. Codex emits `hook: PreToolUse Failed` and proceeds to execute commands without consulting our adapter. The adapter and JSON config ship with the repo but should be considered non-functional until [#108](https://github.com/amulya-labs/ai-dev-foundry/issues/108) is resolved. Treat the sections below as **historical / documentation of intent**, not current behavior.
+
 Codex CLI runs tool calls inside its own sandbox and, by default, prompts when a command or file edit needs to escape it (e.g., writing outside the session's writable roots). That's separate from this repo's Bash policy hooks.
 
 If those escalation prompts get in the way, you can launch Codex with a more permissive approval mode:
@@ -153,11 +155,9 @@ If those escalation prompts get in the way, you can launch Codex with a more per
 codex --full-auto
 ```
 
-This only changes Codex's sandbox/approval behavior. It does **not** disable the hooks in `.codex/hooks/`:
+`--full-auto` skips Codex's own approval prompts but keeps a `workspace-write` sandbox (network off, writes confined to cwd). Once the integration in #108 is fixed, the hooks in `.codex/hooks/` would still apply on top — `[deny.*]` blocks, `[ask.*]` prompts, `[allow.*]` auto-approves. Until then, only Codex's native approval policy and sandbox apply; this repo's allow/ask/deny patterns have **no effect** under Codex.
 
-- `[deny.*]` patterns still block.
-- `[ask.*]` patterns still prompt.
-- `[allow.*]` patterns still auto-approve.
+`codex --dangerously-bypass-approvals-and-sandbox` skips both the prompt layer and the sandbox. Same caveat: until #108 is fixed, the hook is not enforcing anything for Codex.
 
 Note that hooks only gate Bash — not file edits or network — so `--full-auto` does loosen the surface Codex itself guards (writes outside cwd, network, etc.). Pick the mode that matches your environment's trust level; this is a per-user choice, not a repo default.
 

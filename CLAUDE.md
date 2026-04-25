@@ -20,6 +20,9 @@ pytest tests/test_validate_bash.py -v
 # Single test by name substring
 pytest tests/test_validate_bash.py -v -k "test_name_substring"
 
+# Per-provider adapter contract tests (Claude/Gemini/Codex stdin->stdout shape)
+pytest tests/test_adapters.py -v
+
 # Shell integration tests (invokes hook via subprocess)
 tests/test-validate-bash.sh
 
@@ -49,7 +52,7 @@ for f in Path('.claude/agents').glob('*.md'):
 # Full CI-equivalent local check (run before pushing)
 shellcheck .claude/hooks/*.sh .gemini/hooks/*.sh .codex/hooks/*.sh .ai-dev-foundry/shared/hooks/bash-policy/*.sh && \
   python3 -c "import tomllib; tomllib.load(open('.ai-dev-foundry/shared/hooks/bash-policy/bash-patterns.toml','rb'))" && \
-  pytest tests/test_validate_bash.py -v && \
+  pytest tests/test_validate_bash.py tests/test_adapters.py -v && \
   tests/test-validate-bash.sh && \
   tests/test-manage-agents.sh
 ```
