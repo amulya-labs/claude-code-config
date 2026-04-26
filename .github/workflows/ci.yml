@@ -172,10 +172,23 @@ jobs:
           print(f'\nAll {len(toml_files)} TOML file(s) are valid')
           "
 
+      - name: Install pytest
+        run: pip install pytest
+
+      - name: Run pytest suites (policy engine + per-provider adapters)
+        run: |
+          echo "Running pytest..."
+          pytest tests/test_validate_bash.py tests/test_adapters.py -v
+
       - name: Run hook tests
         run: |
           echo "Running bash hook tests..."
           tests/test-validate-bash.sh
+
+      - name: Run wrapper-logging tests
+        run: |
+          echo "Running wrapper-level logging tests..."
+          tests/test-wrapper-logging.sh
 
   validate-manage-configs:
     name: Validate manage-ai-configs.sh

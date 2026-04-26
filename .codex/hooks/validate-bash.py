@@ -21,22 +21,62 @@ validate_command_core = importlib.util.module_from_spec(_spec)
 sys.modules[_spec.name] = validate_command_core
 _spec.loader.exec_module(validate_command_core)
 
+sys.path.insert(0, str(SHARED_DIR))
+import hook_log  # noqa: E402
+
 
 def _read_tool_input(input_data: dict) -> dict:
     return input_data.get("tool_input", {}) or input_data.get("toolInput", {})
 
 
 def output_decision(decision: str, reason: str) -> None:
+    """Emit a Codex-compatible PreToolUse hook response.
+
+    Codex's PreToolUse hook protocol is deny-only: only `permissionDecision: "deny"`
+    (with a non-empty reason) is recognized. Any other value — including "allow"
+    or "ask" — is rejected by Codex with "unsupported permissionDecision:...".
+
+    Mapping for our 3-way (allow/ask/deny) policy under Codex:
+      - deny  -> emit the deny JSON; Codex blocks the command.
+      - allow -> emit nothing; Codex proceeds normally.
+      - ask   -> emit nothing; defer to Codex's own approval policy, which
+                 already prompts for commands outside its trusted set.
+    """
+    if decision != "deny":
+        return
     print(
         json.dumps(
             {
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
-                    "permissionDecision": decision,
-                    "permissionDecisionReason": reason,
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": reason or "Blocked by ai-dev-foundry deny pattern",
                 }
             }
         )
+    )
+
+
+def log_decision(input_data: dict, command: str, decision: str, reason: str) -> None:
+    """Audit-log ask/deny verdicts.
+
+    Codex's deny-only stdout contract means we can't piggy-back on the
+    adapter's stdout to drive shell-side logging the way the Claude/Gemini
+    wrappers do. Instead the adapter writes the log entry itself — same
+    format, same log file, no shell parsing required.
+    """
+    if decision not in ("ask", "deny"):
+        return
+    directory = hook_log.log_dir()
+    if not directory:
+        return
+    project = hook_log.extract_project_from_input(input_data)
+    hook_log.write_entry(
+        directory,
+        project,
+        action=decision.upper(),
+        command=command,
+        reason=reason,
     )
 
 
@@ -53,18 +93,20 @@ def main() -> None:
         sys.exit(0)
 
     tool_input = _read_tool_input(input_data)
+    command = tool_input.get("command", "") or tool_input.get("commandLine", "")
     request = {
         "provider": "codex",
         "phase": "pre_tool_use",
         "tool": "bash",
-        "command": tool_input.get("command", "") or tool_input.get("commandLine", ""),
+        "command": command,
         "cwd": input_data.get("cwd", "") or tool_input.get("directory", ""),
     }
 
-    if not request["command"]:
+    if not command:
         sys.exit(0)
 
     decision, reason = validate_command_core.evaluate_request(request, str(config_path))
+    log_decision(input_data, command, decision, reason)
     output_decision(decision, reason)
 
 

@@ -145,21 +145,32 @@ This is why `settings.json` ships with `Bash(*)` in the allow list. It delegates
 
 ## Codex Tips
 
-Codex CLI runs tool calls inside its own sandbox and, by default, prompts when a command or file edit needs to escape it (e.g., writing outside the session's writable roots). That's separate from this repo's Bash policy hooks.
+Codex CLI runs tool calls inside its own sandbox and, by default, prompts when a command or file edit needs to escape it (e.g., writing outside the session's writable roots). That's a separate gate from this repo's Bash policy hooks, which run on top.
 
-If those escalation prompts get in the way, you can launch Codex with a more permissive approval mode:
+### How the hook integrates with Codex (different from Claude / Gemini)
+
+Codex's `PreToolUse` hook protocol is **deny-only**: only `permissionDecision: "deny"` (with a non-empty reason) is recognized. Any other `permissionDecision` value — including `"allow"` and `"ask"` — is rejected by Codex with `unsupported permissionDecision:...`. Our adapter at `.codex/hooks/validate-bash.py` maps the shared 3-way policy to Codex's 2-way reality:
+
+- `[deny.*]` → emit deny JSON; Codex blocks the command and surfaces our reason.
+- `[allow.*]` → emit no output; Codex proceeds normally.
+- `[ask.*]` → emit no output; Codex's own approval policy fills in for the missing hook-driven prompt.
+
+The deny gate is the meaningful cross-tool guarantee. Ask/allow behavior under Codex is governed by Codex's own approval policy, not by ai-dev-foundry.
+
+### Required: executable bit on hook scripts
+
+Codex spawns hook commands via direct `execve` rather than `bash <script>`, so `.codex/hooks/validate-bash.sh` and `.codex/hooks/post-bash.sh` **must have the executable bit set**. The installer does this automatically (`scripts/manage-ai-configs.sh codex install` ends with a `chmod +x` pass). If you copied files manually or your VCS dropped the mode, run `chmod +x .codex/hooks/*.sh` to restore it. Without the exec bit, Codex emits `hook: PreToolUse Failed` and your policy never applies.
+
+### Approval modes
+
+If Codex's native escalation prompts get in the way, launch it with a more permissive mode:
 
 ```bash
-codex --full-auto
+codex --full-auto                                  # skip prompts, keep sandbox (workspace-write)
+codex --dangerously-bypass-approvals-and-sandbox   # skip prompts, no sandbox
 ```
 
-This only changes Codex's sandbox/approval behavior. It does **not** disable the hooks in `.codex/hooks/`:
-
-- `[deny.*]` patterns still block.
-- `[ask.*]` patterns still prompt.
-- `[allow.*]` patterns still auto-approve.
-
-Note that hooks only gate Bash — not file edits or network — so `--full-auto` does loosen the surface Codex itself guards (writes outside cwd, network, etc.). Pick the mode that matches your environment's trust level; this is a per-user choice, not a repo default.
+In both modes the hooks in `.codex/hooks/` still apply: `[deny.*]` patterns block; `[ask.*]` and `[allow.*]` are silent (per the deny-only protocol above). Hooks gate Bash — not file edits or network — so `--full-auto` does loosen the surface Codex itself guards (writes outside cwd, network, etc.). Pick the mode that matches your environment's trust level; this is a per-user choice, not a repo default.
 
 ## Which Script Should I Use?
 

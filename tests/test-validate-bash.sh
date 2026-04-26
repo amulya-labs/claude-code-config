@@ -196,12 +196,23 @@ run_provider_smoke_tests() {
         "{\"tool_input\":{\"command\":\"git status\",\"directory\":\"$SCRIPT_DIR\"}}" \
         '.decision // "error"' \
         "allow"
+    # Codex's PreToolUse hook is deny-only: only deny verdicts produce stdout.
+    # Smoke-test the deny path so we exercise the actual emission shape.
     test_provider_smoke \
-        "Codex" \
+        "Codex (deny)" \
+        "$CODEX_HOOK" \
+        "{\"tool_input\":{\"command\":\"sudo rm -rf /\",\"directory\":\"$SCRIPT_DIR\"}}" \
+        '.hookSpecificOutput.permissionDecision // "error"' \
+        "deny"
+    # And verify allow/ask verdicts produce no stdout (which test_provider_smoke
+    # interprets as "allow"), so the adapter doesn't accidentally emit something
+    # Codex would reject as "unsupported permissionDecision".
+    test_provider_smoke \
+        "Codex (silent on ask)" \
         "$CODEX_HOOK" \
         "{\"tool_input\":{\"command\":\"git push --force\",\"directory\":\"$SCRIPT_DIR\"}}" \
         '.hookSpecificOutput.permissionDecision // "error"' \
-        "ask"
+        "allow"
     echo
 }
 

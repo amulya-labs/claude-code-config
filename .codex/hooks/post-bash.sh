@@ -1,6 +1,9 @@
 #!/bin/bash
 # Codex PostToolUse hook adapter for the shared Bash policy engine.
 #
+# Thin pass-through: ensure log dir is set, then exec the Python adapter.
+# All decision and logging logic lives in post-bash.py.
+#
 # Source: https://github.com/amulya-labs/ai-dev-foundry
 # License: MIT (https://opensource.org/licenses/MIT)
 
@@ -13,39 +16,7 @@ source "$SHARED_DIR/hook-lib.sh"
 
 aidf_init_log_dir
 [[ -z "$AIDF_HOOK_LOG_DIR" ]] && exit 0
+export AIDF_HOOK_LOG_DIR
 
-INPUT=$(cat)
-PROJECT=$(aidf_extract_project_from_json_input "$INPUT")
-COMMAND=$(printf '%s' "$INPUT" | python3 -c "
-import sys, json
-try:
-    data = json.load(sys.stdin)
-    tool_input = data.get('tool_input') or data.get('toolInput') or {}
-    print((tool_input.get('command') or tool_input.get('commandLine') or '').replace('\n', '\\\\n'))
-except Exception:
-    print('')
-" 2>/dev/null)
-
-[[ -z "$COMMAND" ]] && exit 0
-
-LOG_FILE="$(aidf_log_file_for_project "$PROJECT")"
-DECISION=$(printf '%s' "$INPUT" | python3 "$SCRIPT_DIR/validate-bash.py" "$CONFIG_FILE" 2>/dev/null | python3 -c "
-import sys, json
-try:
-    data = json.load(sys.stdin)
-    print(data.get('hookSpecificOutput', {}).get('permissionDecision', ''))
-except Exception:
-    print('')
-" 2>/dev/null)
-
-if [[ "$DECISION" == "ask" ]]; then
-    {
-        echo "========================================"
-        echo "TIME:   $(LC_ALL=C date '+%Y-%m-%d %H:%M:%S')"
-        echo "ACTION: ASK -> APPROVED"
-        echo "CMD:    $(aidf_sanitize_for_log "$COMMAND")"
-        echo "========================================"
-    } >> "$LOG_FILE"
-fi
-
+python3 "$SCRIPT_DIR/post-bash.py" "$CONFIG_FILE"
 exit 0
